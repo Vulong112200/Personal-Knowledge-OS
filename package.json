@@ -1,0 +1,17 @@
+{
+  "name": "pkos",
+  "private": true,
+  "version": "0.0.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter @pkos/api dev",
+    "dev:web": "pnpm --filter @pkos/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

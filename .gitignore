@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+build/
+coverage/
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+var/storage/
+!var/storage/.gitkeep
+
+*.log
+.DS_Store
+.turbo/
