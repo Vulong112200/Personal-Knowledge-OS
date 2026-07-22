@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_PORT, type StoragePort } from '../storage/storage.port';
+import { QUEUE_PORT, type QueuePort } from '../queue/queue.port';
+import { DOCUMENT_PROCESSING_QUEUE } from '../ingestion/document-processing.constants';
 import { CurrentUserPayload } from '../users/users.service';
 
 export const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
@@ -14,6 +16,7 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
+    @Inject(QUEUE_PORT) private readonly queue: QueuePort,
   ) {}
 
   async upload(user: CurrentUserPayload, file: Express.Multer.File) {
@@ -33,7 +36,7 @@ export class DocumentsService {
 
     await this.storage.putObject(storageKey, file.buffer);
 
-    return this.prisma.document.create({
+    const document = await this.prisma.document.create({
       data: {
         id: documentId,
         workspaceId: user.defaultWorkspaceId,
@@ -48,6 +51,10 @@ export class DocumentsService {
         status: 'uploaded',
       },
     });
+
+    await this.queue.enqueue(DOCUMENT_PROCESSING_QUEUE, { documentId });
+
+    return document;
   }
 
   list(user: CurrentUserPayload) {
