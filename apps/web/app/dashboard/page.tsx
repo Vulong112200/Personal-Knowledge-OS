@@ -59,6 +59,12 @@ export default async function DashboardPage() {
         >
           Documents
         </Link>
+        <Link
+          href="/search"
+          className="rounded-full border border-black/[.08] px-5 py-2 text-center text-sm font-medium transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+        >
+          Search
+        </Link>
         <LogoutButton />
       </div>
     </div>

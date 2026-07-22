@@ -11,6 +11,7 @@ import { StorageModule } from './storage/storage.module';
 import { DocumentsModule } from './documents/documents.module';
 import { QueueModule } from './queue/queue.module';
 import { IngestionModule } from './ingestion/ingestion.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { IngestionModule } from './ingestion/ingestion.module';
     AuthModule,
     DocumentsModule,
     IngestionModule,
+    SearchModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
