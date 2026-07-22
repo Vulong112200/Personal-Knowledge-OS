@@ -1,0 +1,290 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "./generated/prisma"
+  moduleFormat = "cjs"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --- Auth / Workspace -------------------------------------------------
+
+model User {
+  id          String   @id @db.Uuid // = Supabase auth.users.id
+  email       String   @unique
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
+  memberships     WorkspaceMember[]
+  uploadedDocs    Document[]
+  chatSessions    AiChatSession[]
+
+  @@map("users")
+}
+
+model Workspace {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  ownerId   String   @map("owner_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members      WorkspaceMember[]
+  documents    Document[]
+  tags         Tag[]
+  graphNodes   GraphNode[]
+  graphEdges   GraphEdge[]
+  chatSessions AiChatSession[]
+
+  @@map("workspaces")
+}
+
+enum WorkspaceRole {
+  owner
+  admin
+  member
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+}
+
+// --- Documents ----------------------------------------------------------
+
+enum DocumentStatus {
+  uploaded
+  processing
+  processed
+  failed
+  needs_ocr
+}
+
+enum StorageDriver {
+  local
+  r2
+}
+
+model Document {
+  id               String         @id @default(uuid()) @db.Uuid
+  workspaceId      String         @map("workspace_id") @db.Uuid
+  uploadedBy       String         @map("uploaded_by") @db.Uuid
+  title            String
+  originalFilename String         @map("original_filename")
+  mimeType         String         @map("mime_type")
+  sizeBytes        BigInt         @map("size_bytes")
+  checksum         String
+  storageDriver    StorageDriver  @map("storage_driver")
+  storageKey       String         @map("storage_key")
+  status           DocumentStatus @default(uploaded)
+  errorMessage     String?        @map("error_message")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  uploader     User             @relation(fields: [uploadedBy], references: [id])
+  content      DocumentContent?
+  chunks       Chunk[]
+  tags         DocumentTag[]
+  jobs         ProcessingJob[]
+  chatSessions AiChatSession[]
+
+  @@map("documents")
+}
+
+model DocumentContent {
+  documentId  String   @id @map("document_id") @db.Uuid
+  textContent String   @map("text_content")
+  language    String?
+  pageCount   Int?     @map("page_count")
+  extractedAt DateTime @default(now()) @map("extracted_at")
+  // `tsv` tsvector generated column is added by hand-edited migration SQL,
+  // not modeled here — Prisma has no native support for STORED generated columns.
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_content")
+}
+
+model Chunk {
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @map("document_id") @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid // denormalized for scoped queries
+  ordinal     Int
+  content     String
+  tokenCount  Int      @map("token_count")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  document  Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  embedding Embedding?
+
+  @@map("chunks")
+}
+
+model Embedding {
+  id        String                      @id @default(uuid()) @db.Uuid
+  chunkId   String                      @unique @map("chunk_id") @db.Uuid
+  embedding Unsupported("vector(1536)")
+  model     String
+  createdAt DateTime                    @default(now()) @map("created_at")
+
+  chunk Chunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@map("embeddings")
+}
+
+// --- Tags -----------------------------------------------------------------
+
+model Tag {
+  id          String  @id @default(uuid()) @db.Uuid
+  workspaceId String  @map("workspace_id") @db.Uuid
+  name        String
+  color       String?
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documents DocumentTag[]
+
+  @@unique([workspaceId, name])
+  @@map("tags")
+}
+
+enum TagSource {
+  user
+  ai
+}
+
+model DocumentTag {
+  documentId String    @map("document_id") @db.Uuid
+  tagId      String    @map("tag_id") @db.Uuid
+  source     TagSource
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, tagId])
+  @@map("document_tags")
+}
+
+// --- Processing pipeline ---------------------------------------------------
+
+enum ProcessingJobType {
+  extract
+  chunk
+  embed
+  autotag
+  relate
+}
+
+enum ProcessingJobStatus {
+  queued
+  running
+  succeeded
+  failed
+}
+
+model ProcessingJob {
+  id           String              @id @default(uuid()) @db.Uuid
+  documentId   String              @map("document_id") @db.Uuid
+  jobType      ProcessingJobType   @map("job_type")
+  status       ProcessingJobStatus @default(queued)
+  errorMessage String?             @map("error_message")
+  attempts     Int                 @default(0)
+  startedAt    DateTime?           @map("started_at")
+  finishedAt   DateTime?           @map("finished_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("processing_jobs")
+}
+
+// --- Knowledge graph (minimal) ----------------------------------------------
+
+enum GraphNodeType {
+  document
+  tag
+}
+
+model GraphNode {
+  id          String        @id @default(uuid()) @db.Uuid
+  workspaceId String        @map("workspace_id") @db.Uuid
+  nodeType    GraphNodeType @map("node_type")
+  refId       String        @map("ref_id") @db.Uuid
+  label       String
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  outgoing  GraphEdge[] @relation("EdgeSource")
+  incoming  GraphEdge[] @relation("EdgeTarget")
+
+  @@map("graph_nodes")
+}
+
+enum GraphEdgeType {
+  shares_tag
+  similar_content
+}
+
+model GraphEdge {
+  id           String        @id @default(uuid()) @db.Uuid
+  workspaceId  String        @map("workspace_id") @db.Uuid
+  sourceNodeId String        @map("source_node_id") @db.Uuid
+  targetNodeId String        @map("target_node_id") @db.Uuid
+  edgeType     GraphEdgeType @map("edge_type")
+  weight       Float
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceNode GraphNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode GraphNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@map("graph_edges")
+}
+
+// --- AI chat -----------------------------------------------------------------
+
+model AiChatSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  documentId  String?  @map("document_id") @db.Uuid
+  createdBy   String   @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document  Document?       @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  creator   User            @relation(fields: [createdBy], references: [id])
+  messages  AiChatMessage[]
+
+  @@map("ai_chat_sessions")
+}
+
+enum ChatRole {
+  user
+  assistant
+}
+
+model AiChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @map("session_id") @db.Uuid
+  role      ChatRole
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("ai_chat_messages")
+}
