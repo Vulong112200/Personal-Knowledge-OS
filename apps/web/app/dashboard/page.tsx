@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { LogoutButton } from "./logout-button";
 
@@ -52,6 +53,12 @@ export default async function DashboardPage() {
             <dd className="truncate text-black dark:text-zinc-50">{me.defaultWorkspaceId}</dd>
           </div>
         </dl>
+        <Link
+          href="/documents"
+          className="rounded-full bg-foreground px-5 py-2 text-center text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+        >
+          Documents
+        </Link>
         <LogoutButton />
       </div>
     </div>
