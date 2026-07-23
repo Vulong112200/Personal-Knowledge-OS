@@ -10,6 +10,9 @@ import { DOCUMENT_PROCESSING_QUEUE, type DocumentProcessingPayload } from './doc
 import { extractText } from './extract-text';
 import { chunkText } from './chunk-text';
 import { extractKeywords } from './extract-keywords';
+import { runOcrOnPdf } from './run-ocr';
+
+const OCR_ENABLED = process.env.OCR_ENABLED !== 'false';
 
 @Injectable()
 export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
@@ -66,15 +69,21 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
 
     const buffer = await this.storage.getObject(document.storageKey);
     const extension = extname(document.originalFilename).toLowerCase();
-    const { text, needsOcr } = await extractText(buffer, extension);
+    const { text: extractedText, needsOcr } = await extractText(buffer, extension);
+    let text = extractedText;
 
     if (needsOcr) {
-      await this.finishJob(extractJob.id, 'succeeded');
-      await this.prisma.document.update({
-        where: { id: document.id },
-        data: { status: 'needs_ocr' },
-      });
-      return;
+      // No embedded text layer (a scanned PDF). Try OCR to recover it before giving up.
+      const ocrText = OCR_ENABLED ? await this.tryOcr(document.id, buffer) : '';
+      if (!ocrText) {
+        await this.finishJob(extractJob.id, 'succeeded');
+        await this.prisma.document.update({
+          where: { id: document.id },
+          data: { status: 'needs_ocr' },
+        });
+        return;
+      }
+      text = ocrText;
     }
 
     if (!text.trim()) {
@@ -143,6 +152,19 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
       await this.finishJob(relateJob.id, 'succeeded');
     } catch (error) {
       await this.failJobSoftly(relateJob.id, error, `Relationship detection failed for document ${documentId}`);
+    }
+  }
+
+  private async tryOcr(documentId: string, buffer: Buffer): Promise<string> {
+    this.logger.log(`Document ${documentId} has no text layer — attempting OCR...`);
+    try {
+      const text = await runOcrOnPdf(buffer);
+      if (text) this.logger.log(`OCR recovered ${text.length} chars for document ${documentId}.`);
+      return text;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`OCR failed for document ${documentId}: ${message}`);
+      return '';
     }
   }
 
