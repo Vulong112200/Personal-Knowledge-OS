@@ -12,6 +12,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { QueueModule } from './queue/queue.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SearchModule } from './search/search.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { SearchModule } from './search/search.module';
     PrismaModule,
     StorageModule,
     QueueModule,
+    AiModule,
     WorkspacesModule,
     UsersModule,
     AuthModule,

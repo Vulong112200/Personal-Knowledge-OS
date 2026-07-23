@@ -14,7 +14,6 @@ interface SearchResult {
 
 interface SearchResponse {
   results: SearchResult[];
-  semanticUnavailable: boolean;
 }
 
 // Snippets carry SNIPPET_HIGHLIGHT_START/END control characters (not literal HTML) around
@@ -63,12 +62,6 @@ export function SearchView() {
           Search
         </button>
       </form>
-
-      {search.data?.semanticUnavailable && (
-        <p className="text-xs text-zinc-500">
-          Semantic search is not enabled for this workspace — showing full-text matches only.
-        </p>
-      )}
 
       <div className="flex flex-col gap-2">
         {search.data?.results.length === 0 && (

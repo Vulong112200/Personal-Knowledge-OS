@@ -9,11 +9,9 @@ export class SearchController {
 
   @Get()
   async search(@CurrentUser() user: CurrentUserPayload, @Query('q') q?: string) {
-    if (!q?.trim()) return { results: [], semanticUnavailable: true };
+    if (!q?.trim()) return { results: [] };
 
     const results = await this.searchPort.searchFullText(user.defaultWorkspaceId, q.trim());
-    // semanticUnavailable stays true until M5 adds the AiPort-backed vector leg —
-    // fixed response shape now so the frontend never needs to change later.
-    return { results, semanticUnavailable: true };
+    return { results };
   }
 }

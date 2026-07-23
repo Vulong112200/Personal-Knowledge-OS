@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject } from '@nestjs/common';
 import { Worker, type Job } from 'bullmq';
 import { extname } from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
@@ -95,8 +95,8 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
 
     await this.finishJob(chunkJob.id, 'succeeded');
 
-    // Embedding (M5) and relationship detection (M6) will extend this pipeline;
-    // until then, extract+chunk is the full pipeline this MVP slice covers.
+    // Relationship detection (M6) will extend this pipeline further. Embedding/semantic
+    // search is out of scope — OpenRouter (the chosen AI provider) has no embeddings API.
     await this.prisma.document.update({ where: { id: documentId }, data: { status: 'processed' } });
   }
 
