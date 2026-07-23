@@ -21,6 +21,11 @@ export class DocumentsService {
   ) {}
 
   async upload(user: CurrentUserPayload, file: Express.Multer.File) {
+    // Guard the no-file case (multipart with no "file" field) — otherwise extname(undefined)
+    // throws a TypeError and surfaces as a 500 instead of a clear 400.
+    if (!file) {
+      throw new BadRequestException('file is required (multipart field "file")');
+    }
     const ext = extname(file.originalname).toLowerCase();
     if (!ALLOWED_EXTENSIONS.has(ext)) {
       throw new BadRequestException(
@@ -53,7 +58,7 @@ export class DocumentsService {
       },
     });
 
-    await this.queue.enqueue(DOCUMENT_PROCESSING_QUEUE, { documentId });
+    await this.queue.enqueue(DOCUMENT_PROCESSING_QUEUE, { documentId }, { jobId: documentId });
 
     return document;
   }

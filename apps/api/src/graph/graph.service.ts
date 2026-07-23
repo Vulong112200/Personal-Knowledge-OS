@@ -61,6 +61,13 @@ export class GraphService {
     const document = await this.prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     const documentNode = await this.ensureNode(workspaceId, 'document', documentId, document.title);
 
+    // Idempotent reprocess: drop this document's existing has_tag edges first, so re-running
+    // ingestion re-creates them at weight 1 rather than incrementing weight on every run
+    // (which made has_tag weight meaningless) and leaves no edges to tags it no longer has.
+    await this.prisma.graphEdge.deleteMany({
+      where: { workspaceId, edgeType: 'has_tag', sourceNodeId: documentNode.id },
+    });
+
     for (const link of myTagLinks) {
       const tagNode = await this.ensureNode(workspaceId, 'tag', link.tagId, link.tag.name);
       await this.ensureEdge(workspaceId, documentNode.id, tagNode.id, 'has_tag');
@@ -104,8 +111,12 @@ export class GraphService {
     });
     const tagNodeIds = tagEdges.map((e) => e.targetNodeId);
 
+    // Exclude this document's own has_tag edges (sourceNodeId === node.id) — those are
+    // already in tagEdges, so without this filter they'd appear twice in `edges`.
     const siblingEdges = tagNodeIds.length
-      ? await this.prisma.graphEdge.findMany({ where: { workspaceId, edgeType: 'has_tag', targetNodeId: { in: tagNodeIds } } })
+      ? await this.prisma.graphEdge.findMany({
+          where: { workspaceId, edgeType: 'has_tag', targetNodeId: { in: tagNodeIds }, sourceNodeId: { not: node.id } },
+        })
       : [];
 
     const nodeIds = new Set<string>([node.id, ...tagNodeIds, ...siblingEdges.map((e) => e.sourceNodeId)]);

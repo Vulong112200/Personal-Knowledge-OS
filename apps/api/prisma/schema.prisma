@@ -272,6 +272,10 @@ model AiChatSession {
   creator   User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   messages  AiChatMessage[]
 
+  // One session per (workspace, document, user). documentId is nullable and Postgres
+  // treats NULLs as distinct, so this dedupes document-scoped sessions; workspace-wide
+  // (documentId = NULL) sessions get a partial unique index in the migration instead.
+  @@unique([workspaceId, documentId, createdBy])
   @@map("ai_chat_sessions")
 }
 

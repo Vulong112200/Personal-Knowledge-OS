@@ -45,14 +45,15 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
 
   private async process(job: Job<DocumentProcessingPayload>): Promise<void> {
     const { documentId } = job.data;
-    const document = await this.prisma.document.findUniqueOrThrow({ where: { id: documentId } });
 
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'processing' },
-    });
-
+    // Everything (including the initial load + status flip) runs inside the try so a failure
+    // in any of it routes through markFailed rather than leaving the document stuck.
     try {
+      const document = await this.prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+      await this.prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'processing' },
+      });
       await this.runExtract(document);
     } catch (error) {
       await this.markFailed(documentId, error);
@@ -74,6 +75,13 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
         data: { status: 'needs_ocr' },
       });
       return;
+    }
+
+    if (!text.trim()) {
+      // Not a scanned PDF (that path sets needs_ocr above), but extraction produced no
+      // usable text — e.g. an empty .txt/.md or a DOCX with no body. Let it finish as
+      // 'processed' (nothing to chunk/tag), but surface it in the logs rather than silently.
+      this.logger.warn(`Document ${document.id} extracted to empty text — 0 chunks/tags will be produced.`);
     }
 
     await this.prisma.documentContent.upsert({
@@ -113,6 +121,9 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
   private async runAutoTagAndRelate(documentId: string, workspaceId: string, text: string) {
     const autotagJob = await this.startJob(documentId, 'autotag');
     try {
+      // Clear previously AI-assigned tags first so a re-extraction with a different keyword
+      // set doesn't leave stale tags behind (chunks are already delete+recreated upstream).
+      await this.tagsService.clearAiTags(documentId);
       const keywords = extractKeywords(text, 5);
       for (const keyword of keywords) {
         const tag = await this.tagsService.findOrCreate(workspaceId, keyword);
@@ -146,14 +157,21 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
 
   private async markFailed(documentId: string, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    await this.prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'failed', errorMessage: message },
-    });
-    await this.prisma.processingJob.updateMany({
-      where: { documentId, status: 'running' },
-      data: { status: 'failed', errorMessage: message, finishedAt: new Date() },
-    });
+    // Best-effort: if the document row is already gone (e.g. deleted mid-processing) this
+    // must not throw and mask the original error that's about to be rethrown.
+    try {
+      await this.prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'failed', errorMessage: message },
+      });
+      await this.prisma.processingJob.updateMany({
+        where: { documentId, status: 'running' },
+        data: { status: 'failed', errorMessage: message, finishedAt: new Date() },
+      });
+    } catch (markError) {
+      const markMessage = markError instanceof Error ? markError.message : String(markError);
+      this.logger.error(`Failed to mark document ${documentId} as failed: ${markMessage}`);
+    }
   }
 
   private startJob(documentId: string, jobType: 'extract' | 'chunk' | 'autotag' | 'relate') {
