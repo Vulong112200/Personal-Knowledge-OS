@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import Link from "next/link";
 import { useDropzone } from "react-dropzone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -81,9 +82,10 @@ export function DocumentsView() {
           <p className="text-sm text-zinc-500">No documents yet.</p>
         )}
         {documents?.map((doc) => (
-          <div
+          <Link
             key={doc.id}
-            className="flex items-center justify-between gap-4 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
+            href={`/documents/${doc.id}`}
+            className="flex items-center justify-between gap-4 rounded-lg border border-black/[.08] bg-white p-4 transition-colors hover:bg-black/[.02] dark:border-white/[.145] dark:bg-zinc-950 dark:hover:bg-white/[.03]"
           >
             <div className="flex flex-col gap-1 overflow-hidden">
               <span className="truncate text-sm font-medium text-black dark:text-zinc-50">
@@ -98,7 +100,7 @@ export function DocumentsView() {
             >
               {doc.status}
             </span>
-          </div>
+          </Link>
         ))}
       </div>
     </div>

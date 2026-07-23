@@ -13,6 +13,9 @@ import { QueueModule } from './queue/queue.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SearchModule } from './search/search.module';
 import { AiModule } from './ai/ai.module';
+import { TagsModule } from './tags/tags.module';
+import { GraphModule } from './graph/graph.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -25,8 +28,11 @@ import { AiModule } from './ai/ai.module';
     UsersModule,
     AuthModule,
     DocumentsModule,
+    TagsModule,
+    GraphModule,
     IngestionModule,
     SearchModule,
+    ChatModule,
   ],
   controllers: [AppController, HealthController],
   providers: [AppService],
