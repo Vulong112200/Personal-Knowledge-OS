@@ -1,19 +1,34 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import type { createRemoteJWKSet, JWTPayload } from 'jose';
 import { AuthPort, AuthUser } from './auth.port';
+
+type Jwks = ReturnType<typeof createRemoteJWKSet>;
 
 @Injectable()
 export class SupabaseAuthAdapter implements AuthPort {
-  // Modern Supabase projects sign user session tokens asymmetrically and publish
-  // the public keys here; this returns no keys for projects still on the legacy
-  // shared HS256 secret, which is why verifyToken falls back to SUPABASE_JWT_SECRET.
-  private readonly jwks = createRemoteJWKSet(
-    new URL(`${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
-  );
+  // `jose` is ESM-only — loaded via dynamic import (the standard way to consume an
+  // ESM-only package from CommonJS-compiled code, and the only way that also works
+  // when the app is loaded under Jest's CJS runtime, e.g. in e2e tests).
+  private jwksPromise: Promise<Jwks> | null = null;
+
+  private getJwks(): Promise<Jwks> {
+    if (!this.jwksPromise) {
+      this.jwksPromise = import('jose').then(({ createRemoteJWKSet }) =>
+        // Modern Supabase projects sign user session tokens asymmetrically and publish
+        // the public keys here; this returns no keys for projects still on the legacy
+        // shared HS256 secret, which is why verifyToken falls back to SUPABASE_JWT_SECRET.
+        createRemoteJWKSet(new URL(`${process.env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`)),
+      );
+    }
+    return this.jwksPromise;
+  }
 
   async verifyToken(token: string): Promise<AuthUser> {
+    const { jwtVerify } = await import('jose');
+
     try {
-      const { payload } = await jwtVerify(token, this.jwks);
+      const jwks = await this.getJwks();
+      const { payload } = await jwtVerify(token, jwks);
       return this.toAuthUser(payload);
     } catch {
       const secret = process.env.SUPABASE_JWT_SECRET;
