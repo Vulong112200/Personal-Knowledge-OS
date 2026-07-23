@@ -9,8 +9,10 @@ coverage/
 .env.*.local
 !.env.example
 
-var/storage/
-!var/storage/.gitkeep
+# Uploaded object storage — ignore contents at any depth (e.g. apps/api/var/storage/),
+# but keep the .gitkeep dir marker. Ignore contents (*) not the dir, so the negation works.
+**/var/storage/*
+!**/var/storage/.gitkeep
 
 *.log
 .DS_Store
