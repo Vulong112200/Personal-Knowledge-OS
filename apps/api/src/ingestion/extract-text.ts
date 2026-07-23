@@ -39,7 +39,10 @@ export async function extractText(buffer: Buffer, extension: string): Promise<Ex
 /** Flatten an .xlsx workbook to text: every sheet, row by row, cells tab-joined — enough
  * for full-text indexing and RAG without trying to preserve layout. */
 async function extractXlsx(buffer: Buffer): Promise<string> {
-  const ExcelJS = await import('exceljs');
+  // exceljs is CJS: under a dynamic import its constructor lives on `.default` (interop),
+  // not the namespace root — `new ExcelJS.Workbook()` on the namespace throws otherwise.
+  const mod = await import('exceljs');
+  const ExcelJS = ((mod as unknown as { default?: typeof import('exceljs') }).default ?? mod) as typeof import('exceljs');
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
 

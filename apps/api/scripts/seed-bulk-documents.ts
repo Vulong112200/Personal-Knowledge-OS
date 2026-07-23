@@ -414,7 +414,17 @@ async function runPool(total: number, concurrency: number, task: (index: number)
 
 async function main() {
   await ensureTestUser();
-  const token = await signIn();
+  let token = await signIn();
+
+  // SEED_RESET=true wipes the existing test account (docs + user) first for a pristine
+  // corpus, then recreates it — useful after a partial/failed run.
+  if (process.env.SEED_RESET === 'true') {
+    console.log('SEED_RESET=true → deleting existing test account for a clean corpus...');
+    await fetch(`${API_BASE_URL}/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    await ensureTestUser();
+    token = await signIn();
+  }
+
   console.log(`Signed in as ${SEED_USER_EMAIL}. Uploading ${SEED_DOC_COUNT} documents across ${FILE_TYPES.length} file types...`);
 
   const { succeeded, failed } = await runPool(SEED_DOC_COUNT, SEED_CONCURRENCY, (i) => uploadDocument(token, i));
