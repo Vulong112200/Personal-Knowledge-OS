@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
 import { ALLOWED_DOCUMENT_EXTENSIONS, MAX_DOCUMENT_SIZE_BYTES } from '@pkos/contracts';
@@ -14,6 +14,8 @@ const ALLOWED_EXTENSIONS = new Set<string>(ALLOWED_DOCUMENT_EXTENSIONS);
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
@@ -82,5 +84,35 @@ export class DocumentsService {
     const document = await this.get(user, id);
     const buffer = await this.storage.getObject(document.storageKey);
     return { document, buffer };
+  }
+
+  async getContent(user: CurrentUserPayload, id: string) {
+    await this.get(user, id); // ownership + 404
+    const content = await this.prisma.documentContent.findUnique({ where: { documentId: id } });
+    return { textContent: content?.textContent ?? null };
+  }
+
+  async remove(user: CurrentUserPayload, id: string) {
+    const document = await this.get(user, id); // ownership + 404
+
+    // Document delete cascades to content/chunks/tags/jobs via FK. Two things don't:
+    //  - graph_nodes.ref_id is a plain string (not an FK), so the document's graph node
+    //    must be removed explicitly (its edges cascade off the node).
+    //  - ai_chat_sessions.document_id is onDelete:SetNull; letting it null out would collide
+    //    with the workspace-chat partial unique index, so delete the doc's sessions first.
+    await this.prisma.$transaction([
+      this.prisma.graphNode.deleteMany({
+        where: { workspaceId: document.workspaceId, nodeType: 'document', refId: id },
+      }),
+      this.prisma.aiChatSession.deleteMany({ where: { documentId: id } }),
+      this.prisma.document.delete({ where: { id } }),
+    ]);
+
+    await this.storage.deleteObject(document.storageKey).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Deleted document ${id} but failed to remove its stored object: ${message}`);
+    });
+
+    return { id };
   }
 }

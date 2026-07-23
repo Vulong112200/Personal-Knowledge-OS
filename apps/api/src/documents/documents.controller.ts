@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -31,6 +32,16 @@ export class DocumentsController {
   @Get(':id')
   get(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.documents.get(user, id);
+  }
+
+  @Get(':id/content')
+  getContent(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.documents.getContent(user, id);
+  }
+
+  @Delete(':id')
+  remove(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.documents.remove(user, id);
   }
 
   @Get(':id/download')

@@ -2,14 +2,17 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Send } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
+import { formatBytes } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, type DocumentStatus } from "@/components/ui/badge";
+import { ChatPanel } from "@/components/chat-panel";
 import type { GraphResponseDto } from "@pkos/contracts";
 
 const ForceGraphCanvas = dynamic(() => import("../../graph/force-graph-canvas"), { ssr: false });
@@ -23,29 +26,23 @@ interface DocumentDto {
   createdAt: string;
 }
 
-interface ChatMessageDto {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
-interface ChatHistoryResponse {
-  available: boolean;
-  messages: ChatMessageDto[];
-}
-
-interface ChatSendResponse {
-  available: boolean;
-  reply?: string;
+interface ContentResponse {
+  textContent: string | null;
 }
 
 export function DocumentDetailView({ documentId }: { documentId: string }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const document = useQuery<DocumentDto>({
     queryKey: ["document", documentId],
     queryFn: () => apiFetch(`/documents/${documentId}`),
+  });
+
+  const content = useQuery<ContentResponse>({
+    queryKey: ["document", documentId, "content"],
+    queryFn: () => apiFetch(`/documents/${documentId}/content`),
   });
 
   const relatedGraph = useQuery<GraphResponseDto>({
@@ -53,49 +50,117 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
     queryFn: () => apiFetch(`/documents/${documentId}/related/graph`),
   });
 
-  const chatHistory = useQuery<ChatHistoryResponse>({
-    queryKey: ["document", documentId, "chat"],
-    queryFn: () => apiFetch(`/documents/${documentId}/chat`),
-  });
-
-  const sendMessage = useMutation({
-    mutationFn: (message: string) =>
-      apiFetch(`/documents/${documentId}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-      }) as Promise<ChatSendResponse>,
+  const remove = useMutation({
+    mutationFn: () => apiFetch(`/documents/${documentId}`, { method: "DELETE" }),
     onSuccess: () => {
-      setDraft("");
-      queryClient.invalidateQueries({ queryKey: ["document", documentId, "chat"] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      router.push("/documents");
     },
+    onError: (err) => setActionError(err instanceof Error ? err.message : "Failed to delete document."),
   });
 
-  function handleSend(e: React.FormEvent) {
-    e.preventDefault();
-    if (draft.trim()) sendMessage.mutate(draft.trim());
+  async function handleDownload() {
+    setActionError(null);
+    try {
+      const supabase = createClient();
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/documents/${documentId}/download`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = window.document.createElement("a");
+      a.href = url;
+      a.download = document.data?.title ?? "document";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Download failed.");
+    }
+  }
+
+  function handleDelete() {
+    if (window.confirm("Delete this document permanently? This cannot be undone.")) {
+      remove.mutate();
+    }
   }
 
   const hasEgoGraph = (relatedGraph.data?.edges.length ?? 0) > 0;
+
+  if (document.isError) {
+    return (
+      <>
+        <PageHeader title="Document" />
+        <div className="p-8">
+          <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+            Failed to load this document. It may have been deleted, or the API is unreachable.
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         title={document.data?.title ?? "Loading..."}
-        description={
-          document.data
-            ? `${Number(document.data.sizeBytes).toLocaleString()} bytes`
-            : undefined
+        description={document.data ? formatBytes(Number(document.data.sizeBytes)) : undefined}
+        action={
+          document.data && (
+            <div className="flex items-center gap-2">
+              <StatusBadge status={document.data.status} />
+              <Button variant="outline" size="icon" onClick={handleDownload} aria-label="Download">
+                <Download className="size-4" />
+              </Button>
+              <Button
+                variant="danger"
+                size="icon"
+                onClick={handleDelete}
+                disabled={remove.isPending}
+                aria-label="Delete"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          )
         }
-        action={document.data && <StatusBadge status={document.data.status} />}
       />
 
       <div className="flex w-full max-w-2xl flex-col gap-6 p-8">
+        {actionError && (
+          <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{actionError}</p>
+        )}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Content</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {content.isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+            {content.isError && (
+              <p className="text-sm text-danger">Failed to load content.</p>
+            )}
+            {content.data && !content.data.textContent && (
+              <p className="text-sm text-muted-foreground">
+                No readable text yet (still processing, needs OCR, or empty).
+              </p>
+            )}
+            {content.data?.textContent && (
+              <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words font-sans text-sm text-foreground">
+                {content.data.textContent}
+              </pre>
+            )}
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Related documents</CardTitle>
           </CardHeader>
           <CardContent>
+            {relatedGraph.isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
             {relatedGraph.data && !hasEgoGraph && (
               <p className="text-sm text-muted-foreground">None yet.</p>
             )}
@@ -121,50 +186,18 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
           </CardContent>
         </Card>
 
-        <Card className="flex flex-col gap-2">
+        <Card>
           <CardHeader>
             <CardTitle>Chat with this document</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {chatHistory.data?.available === false && (
-              <p className="rounded-md bg-background-muted px-3 py-2 text-xs text-muted-foreground">
-                AI is not enabled for this workspace.
-              </p>
-            )}
-
-            <div className="flex max-h-80 flex-col gap-2 overflow-y-auto">
-              {chatHistory.data?.messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={
-                    m.role === "user"
-                      ? "self-end max-w-[80%] rounded-2xl rounded-br-sm gradient-brand px-3 py-2 text-sm text-white"
-                      : "self-start max-w-[80%] rounded-2xl rounded-bl-sm bg-background-muted px-3 py-2 text-sm text-foreground"
-                  }
-                >
-                  {m.content}
-                </div>
-              ))}
-            </div>
-
-            <form onSubmit={handleSend} className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Ask a question about this document..."
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                disabled={chatHistory.data?.available === false}
-                className="flex-1"
-              />
-              <Button
-                type="submit"
-                size="icon"
-                disabled={sendMessage.isPending || chatHistory.data?.available === false}
-                aria-label="Send"
-              >
-                <Send className="size-4" />
-              </Button>
-            </form>
+          <CardContent>
+            <ChatPanel
+              queryKey={["document", documentId, "chat"]}
+              historyUrl={`/documents/${documentId}/chat`}
+              sendUrl={`/documents/${documentId}/chat`}
+              placeholder="Ask a question about this document..."
+              emptyHint="Ask a question about this document."
+            />
           </CardContent>
         </Card>
       </div>

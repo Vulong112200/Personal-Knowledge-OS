@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useMutation } from "@tanstack/react-query";
 import { Search as SearchIcon } from "lucide-react";
 import { SNIPPET_HIGHLIGHT_START, SNIPPET_HIGHLIGHT_END } from "@pkos/contracts";
@@ -18,6 +19,7 @@ interface SearchResult {
 
 interface SearchResponse {
   results: SearchResult[];
+  total: number;
 }
 
 // Snippets carry SNIPPET_HIGHLIGHT_START/END control characters (not literal HTML) around
@@ -40,6 +42,7 @@ function renderSnippet(snippet: string): ReactNode {
 
 export function SearchView() {
   const [query, setQuery] = useState("");
+  const [submitted, setSubmitted] = useState("");
 
   const search = useMutation({
     mutationFn: (q: string) => apiFetch(`/search?q=${encodeURIComponent(q)}`) as Promise<SearchResponse>,
@@ -47,7 +50,10 @@ export function SearchView() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (query.trim()) search.mutate(query.trim());
+    const q = query.trim();
+    if (!q) return;
+    setSubmitted(q);
+    search.mutate(q);
   }
 
   return (
@@ -64,19 +70,34 @@ export function SearchView() {
           />
         </div>
         <Button type="submit" disabled={search.isPending}>
-          Search
+          {search.isPending ? "Searching..." : "Search"}
         </Button>
       </form>
 
       <div className="flex flex-col gap-2">
-        {search.data?.results.length === 0 && <p className="text-sm text-muted-foreground">No matches.</p>}
+        {search.isPending && <p className="text-sm text-muted-foreground">Searching...</p>}
+
+        {search.isError && (
+          <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+            Search failed. Please try again.
+          </p>
+        )}
+
+        {search.isSuccess && (
+          <p className="text-xs text-muted-foreground">
+            {search.data.total} result{search.data.total === 1 ? "" : "s"} for &ldquo;{submitted}&rdquo;
+          </p>
+        )}
+
         {search.data?.results.map((result) => (
-          <Card key={result.documentId}>
-            <CardContent className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">{result.title}</span>
-              <p className="text-sm text-muted-foreground">{renderSnippet(result.snippet)}</p>
-            </CardContent>
-          </Card>
+          <Link key={result.documentId} href={`/documents/${result.documentId}`}>
+            <Card className="transition-all hover:-translate-y-0.5 hover:shadow-glow">
+              <CardContent className="flex flex-col gap-1">
+                <span className="text-sm font-medium text-foreground">{result.title}</span>
+                <p className="text-sm text-muted-foreground">{renderSnippet(result.snippet)}</p>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
     </div>
