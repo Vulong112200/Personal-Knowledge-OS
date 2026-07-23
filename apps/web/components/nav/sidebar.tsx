@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FileText, Search, Share2, Settings, MessageSquare, Menu, X } from "lucide-react";
+import { LayoutDashboard, FileText, Search, Share2, Settings, MessageSquare, Tag, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoutButton } from "@/components/nav/logout-button";
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/search", label: "Search", icon: Search },
+  { href: "/tags", label: "Tags", icon: Tag },
   { href: "/graph", label: "Graph", icon: Share2 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

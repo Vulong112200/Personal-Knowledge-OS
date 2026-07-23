@@ -73,6 +73,7 @@ export default function ForceGraphCanvas({ mode, data, compact = false }: Props)
     onNodeClick: (n: unknown) => {
       const node = asNode(n);
       if (node.nodeType === "document") router.push(`/documents/${node.refId}`);
+      else if (node.nodeType === "tag") router.push(`/documents?tag=${node.refId}`);
     },
     width: size.width,
     height: size.height,

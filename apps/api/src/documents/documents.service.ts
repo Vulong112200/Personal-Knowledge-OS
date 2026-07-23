@@ -65,9 +65,12 @@ export class DocumentsService {
     return document;
   }
 
-  list(user: CurrentUserPayload) {
+  list(user: CurrentUserPayload, tagId?: string) {
     return this.prisma.document.findMany({
-      where: { workspaceId: user.defaultWorkspaceId },
+      where: {
+        workspaceId: user.defaultWorkspaceId,
+        ...(tagId ? { tags: { some: { tagId } } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
     });
   }

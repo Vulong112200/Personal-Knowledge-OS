@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -25,8 +26,8 @@ export class DocumentsController {
   }
 
   @Get()
-  list(@CurrentUser() user: CurrentUserPayload) {
-    return this.documents.list(user);
+  list(@CurrentUser() user: CurrentUserPayload, @Query('tag') tag?: string) {
+    return this.documents.list(user, tag);
   }
 
   @Get(':id')

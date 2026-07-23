@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { UploadCloud, FolderOpen } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { UploadCloud, FolderOpen, Trash2, X as XIcon } from "lucide-react";
 import { ALLOWED_DOCUMENT_EXTENSIONS, MAX_DOCUMENT_SIZE_BYTES } from "@pkos/contracts";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { formatBytes } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge, type DocumentStatus } from "@/components/ui/badge";
@@ -59,6 +61,8 @@ function partitionFiles(files: File[]): PendingSelection {
 
 export function DocumentsView() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const tag = searchParams.get("tag");
   const folderInputRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<PendingSelection | null>(null);
 
@@ -66,11 +70,28 @@ export function DocumentsView() {
     folderInputRef.current?.setAttribute("webkitdirectory", "");
   }, []);
 
-  const { data: documents, isLoading } = useQuery<DocumentDto[]>({
-    queryKey: ["documents"],
-    queryFn: () => apiFetch("/documents"),
-    refetchInterval: 5000,
+  const {
+    data: documents,
+    isLoading,
+    isError,
+  } = useQuery<DocumentDto[]>({
+    queryKey: ["documents", tag ?? null],
+    queryFn: () => apiFetch(tag ? `/documents?tag=${encodeURIComponent(tag)}` : "/documents"),
+    // Only poll while something is still being processed; stop once everything settles.
+    refetchInterval: (query) =>
+      query.state.data?.some((d) => d.status === "uploaded" || d.status === "processing") ? 5000 : false,
   });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => apiFetch(`/documents/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+  });
+
+  function handleDelete(id: string) {
+    if (window.confirm("Delete this document permanently? This cannot be undone.")) {
+      remove.mutate(id);
+    }
+  }
 
   const batch = useBatchUpload(() => queryClient.invalidateQueries({ queryKey: ["documents"] }));
 
@@ -175,21 +196,50 @@ export function DocumentsView() {
         inFlight={batch.inFlight}
       />
 
+      {tag && (
+        <div className="flex items-center justify-between rounded-md bg-background-muted px-3 py-2 text-xs text-muted-foreground">
+          <span>Filtered by tag.</span>
+          <Link href="/documents" className="inline-flex items-center gap-1 text-primary hover:underline">
+            <XIcon className="size-3" />
+            Clear filter
+          </Link>
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         {isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
-        {documents?.length === 0 && <p className="text-sm text-muted-foreground">No documents yet.</p>}
+        {isError && (
+          <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+            Failed to load documents. Please refresh or check that the API is running.
+          </p>
+        )}
+        {documents?.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            {tag ? "No documents with this tag." : "No documents yet."}
+          </p>
+        )}
         {documents?.map((doc) => (
-          <Link key={doc.id} href={`/documents/${doc.id}`}>
-            <Card className="flex items-center justify-between gap-4 p-4 transition-all hover:-translate-y-0.5 hover:shadow-glow">
-              <div className="flex flex-col gap-1 overflow-hidden">
-                <span className="truncate text-sm font-medium text-foreground">{doc.title}</span>
-                <span className="text-xs text-muted-foreground">
-                  {Number(doc.sizeBytes).toLocaleString()} bytes
-                </span>
-              </div>
+          <Card key={doc.id} className="flex items-center justify-between gap-4 p-4">
+            <Link
+              href={`/documents/${doc.id}`}
+              className="flex flex-1 flex-col gap-1 overflow-hidden transition-transform hover:translate-x-0.5"
+            >
+              <span className="truncate text-sm font-medium text-foreground">{doc.title}</span>
+              <span className="text-xs text-muted-foreground">{formatBytes(Number(doc.sizeBytes))}</span>
+            </Link>
+            <div className="flex items-center gap-2">
               <StatusBadge status={doc.status} />
-            </Card>
-          </Link>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Delete document"
+                disabled={remove.isPending}
+                onClick={() => handleDelete(doc.id)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          </Card>
         ))}
       </div>
     </div>

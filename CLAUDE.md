@@ -57,11 +57,14 @@ that module changes, since every consumer depends on the port token
 | Auth + default workspace | ✅ | Supabase Auth, JWKS-first verification, auto-provision on first request |
 | Document upload | ✅ | PDF/DOCX/MD/TXT, 20MB limit, local filesystem storage |
 | Async ingestion pipeline | ✅ | extract → chunk → autotag → relate, BullMQ/Upstash |
-| Full-text search | ✅ | Postgres `simple` tsvector config (EN + VI, no stemming) |
+| Full-text search | ✅ | Postgres `simple` tsvector + `unaccent` (VI diacritics-insensitive); title searchable + weighted; paginated (`limit`/`offset`, returns `total`) |
 | Semantic/hybrid search | ❌ dropped | OpenRouter has no embeddings endpoint — see AI note below |
-| Auto-tagging | ✅ (naive stub) | Top-5 keyword frequency, EN+VI stop words — not real NLP |
+| Auto-tagging | ✅ (heuristic) | Top-5 by unigram frequency + recurring bigram phrases (helps VI), pure numbers dropped — still not real NLP/segmentation |
 | Relationship detection | ✅ (naive stub) | `graph_edges` from shared tags only, no similarity leg |
-| AI chat (per document) | ✅ | Injects up to 6000 chars of document content + last 10 messages as context |
+| AI chat (per document) | ✅ | Retrieves most-relevant in-document chunks per question (lexical), falls back to doc head; last 10 messages as context |
+| AI chat (whole knowledge base) | ✅ | `GET/POST /chat` — lexical RAG over all chunks in the workspace, returns cited `sources`; workspace-scoped session (`documentId=null`) |
+| Document delete | ✅ | `DELETE /documents/:id` — removes storage object, graph node/edges, chat sessions; cascades content/chunks/tags |
+| Tags UI | ✅ | `/tags` page (tag + document count), filter documents by tag (`GET /documents?tag=`), clickable tag nodes in graph |
 | OCR (scanned PDFs) | 📋 not started | `status=needs_ocr` is set but nothing processes it (fast-follow: `tesseract.js`) |
 | Graph visualization UI | 📋 not started | Schema/data exist (`graph_nodes`/`graph_edges`); only a flat "Related Documents" list is built |
 | Flashcards / spaced repetition | 📋 not started | Out of MVP scope |
@@ -77,14 +80,18 @@ Status legend: ✅ done · 🚧 in progress · 📋 not started · ❌ dropped f
 | GET | `/` | public | — (Nest scaffold default) |
 | GET | `/health`, `/health/db` | public | health |
 | GET | `/me` | required | users |
+| PATCH | `/me` | required | users (body `{displayName}`) |
 | POST | `/documents` | required | documents (multipart, field `file`) |
-| GET | `/documents` | required | documents (list, workspace-scoped) |
+| GET | `/documents` | required | documents (list, workspace-scoped; optional `?tag=<tagId>`) |
 | GET | `/documents/:id` | required | documents |
+| GET | `/documents/:id/content` | required | documents (extracted text for in-app reader) |
 | GET | `/documents/:id/download` | required | documents |
+| DELETE | `/documents/:id` | required | documents |
 | GET | `/documents/:id/related` | required | graph |
-| GET/POST | `/documents/:id/chat` | required | chat (GET = history, POST body `{message}`) |
-| GET | `/tags` | required | tags |
-| GET | `/search?q=` | required | search |
+| GET/POST | `/documents/:id/chat` | required | chat — per-document (GET = history, POST body `{message}`) |
+| GET/POST | `/chat` | required | chat — whole knowledge base (POST returns `{reply, sources}`) |
+| GET | `/tags` | required | tags (each with `documentCount`) |
+| GET | `/search?q=` | required | search (optional `limit`/`offset`; returns `{results, total}`) |
 
 Full OpenAPI schema (auto-generated, always current): run the API and open `/docs`
 (Swagger UI, public route — mounted via middleware so the global auth guard doesn't apply).

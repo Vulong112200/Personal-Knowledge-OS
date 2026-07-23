@@ -17,6 +17,15 @@ export class UsersService {
     private readonly workspaces: WorkspacesService,
   ) {}
 
+  async updateDisplayName(user: CurrentUserPayload, displayName: string): Promise<CurrentUserPayload> {
+    const trimmed = displayName.trim();
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { displayName: trimmed || null },
+    });
+    return { ...user, displayName: updated.displayName };
+  }
+
   async findOrCreateFromAuth(authUser: AuthUser): Promise<CurrentUserPayload> {
     const user = await this.upsertUser(authUser);
     const workspace = await this.workspaces.ensureDefaultWorkspace(user.id, user.email);

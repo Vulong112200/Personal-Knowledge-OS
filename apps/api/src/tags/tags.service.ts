@@ -29,8 +29,18 @@ export class TagsService {
     return this.prisma.documentTag.deleteMany({ where: { documentId, source: 'ai' } });
   }
 
-  listForWorkspace(workspaceId: string) {
-    return this.prisma.tag.findMany({ where: { workspaceId } });
+  async listForWorkspace(workspaceId: string) {
+    const tags = await this.prisma.tag.findMany({
+      where: { workspaceId },
+      include: { _count: { select: { documents: true } } },
+      orderBy: { name: 'asc' },
+    });
+    return tags.map((t) => ({
+      id: t.id,
+      name: t.name,
+      color: t.color,
+      documentCount: t._count.documents,
+    }));
   }
 
   listForDocument(documentId: string) {
