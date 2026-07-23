@@ -102,15 +102,10 @@ export function DocumentsView() {
 
   const onDrop = useCallback((files: File[]) => handleFilesSelected(files), [handleFilesSelected]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      "application/pdf": [".pdf"],
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
-      "text/markdown": [".md"],
-      "text/plain": [".txt"],
-    },
-  });
+  // No `accept` restriction here — the accepted-extension list lives in @pkos/contracts and
+  // is enforced by partitionFiles (which also reports skipped files), so drag/drop and the
+  // folder picker share one source of truth instead of a duplicated mime map.
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop });
 
   function confirmUpload() {
     if (!pending) return;
@@ -130,7 +125,7 @@ export function DocumentsView() {
         <input {...getInputProps()} />
         <UploadCloud className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Drag &amp; drop a PDF, DOCX, MD, or TXT file here, or click to select one
+          Drag &amp; drop documents here (PDF, DOCX, XLSX, CSV, HTML, Markdown, code, and more), or click to select
         </p>
       </div>
 
