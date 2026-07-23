@@ -211,12 +211,26 @@ function cap(s: string): string {
   return s.replace(/(^|[-_])(\w)/g, (_, __, c) => c.toUpperCase());
 }
 
+// pdf-lib's StandardFonts use WinAnsi encoding, which can't represent Vietnamese diacritics
+// (đ, ế, ư, ...). Fold to ASCII for PDF drawing only — the unaccent search config folds
+// diacritics anyway, so "pho" in a PDF still matches a "phở" query. Other formats keep Unicode.
+function toAscii(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
 async function pdfBuffer(cat: Category, title: string): Promise<Buffer> {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage();
   const { width, height } = page.getSize();
-  const lines = wrap(`${title}\n\nCategory: ${cat.slug}\nKeywords: ${cat.keywords.join(', ')}\n\n${bodyText(cat)}`, 90);
+  const lines = wrap(
+    toAscii(`${title}\n\nCategory: ${cat.slug}\nKeywords: ${cat.keywords.join(', ')}\n\n${bodyText(cat)}`),
+    90,
+  );
   let y = height - 50;
   for (const line of lines) {
     if (y < 50) break;

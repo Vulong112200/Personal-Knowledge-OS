@@ -1,0 +1,7 @@
+# TaiChinh note 97
+
+Topic keywords: ngan sach, doanh thu, chi phi, loi nhuan, dau tu.
+
+Kế hoạch đầu tư dựa trên dự báo doanh thu và ngân sách. Lợi nhuận quý này cải thiện nhờ kiểm soát chi phí đầu tư. Kế hoạch đầu tư dựa trên dự báo doanh thu và ngân sách. Lợi nhuận quý này cải thiện nhờ kiểm soát chi phí đầu tư.
+
+Kế hoạch đầu tư dựa trên dự báo doanh thu và ngân sách. Lợi nhuận quý này cải thiện nhờ kiểm soát chi phí đầu tư. Kế hoạch đầu tư dựa trên dự báo doanh thu và ngân sách. Lợi nhuận quý này cải thiện nhờ kiểm soát chi phí đầu tư.
