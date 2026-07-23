@@ -17,6 +17,7 @@ export interface SearchOptions {
 
 /** A retrieved chunk used to build RAG context for chat. */
 export interface ChunkHit {
+  chunkId: string;
   documentId: string;
   title: string;
   content: string;

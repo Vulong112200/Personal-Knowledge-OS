@@ -13,6 +13,7 @@ import { QueueModule } from './queue/queue.module';
 import { IngestionModule } from './ingestion/ingestion.module';
 import { SearchModule } from './search/search.module';
 import { AiModule } from './ai/ai.module';
+import { EmbeddingModule } from './ai/embedding.module';
 import { TagsModule } from './tags/tags.module';
 import { GraphModule } from './graph/graph.module';
 import { ChatModule } from './chat/chat.module';
@@ -24,6 +25,7 @@ import { ChatModule } from './chat/chat.module';
     StorageModule,
     QueueModule,
     AiModule,
+    EmbeddingModule,
     WorkspacesModule,
     UsersModule,
     AuthModule,

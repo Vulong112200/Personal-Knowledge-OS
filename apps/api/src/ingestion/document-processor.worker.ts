@@ -1,8 +1,10 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject } from '@nestjs/common';
 import { Worker, type Job } from 'bullmq';
 import { extname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_PORT, type StoragePort } from '../storage/storage.port';
+import { EMBEDDING_PORT, type EmbeddingPort } from '../ai/embedding.port';
 import { TagsService } from '../tags/tags.service';
 import { GraphService } from '../graph/graph.service';
 import { createRedisConnection } from '../queue/redis-connection';
@@ -22,6 +24,7 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
+    @Inject(EMBEDDING_PORT) private readonly embedding: EmbeddingPort,
     private readonly tagsService: TagsService,
     private readonly graphService: GraphService,
   ) {}
@@ -124,7 +127,50 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
 
     await this.runAutoTagAndRelate(documentId, document.workspaceId, text);
 
+    // Mark processed as soon as it's FTS-searchable; embeddings backfill after (fail-soft).
     await this.prisma.document.update({ where: { id: documentId }, data: { status: 'processed' } });
+
+    await this.runEmbed(documentId);
+  }
+
+  private async runEmbed(documentId: string) {
+    if (!this.embedding.isAvailable) return;
+
+    const embedJob = await this.startJob(documentId, 'embed');
+    try {
+      // Chunks were just delete+recreated in runChunk, so their old embeddings are already
+      // gone (FK cascade) — insert fresh ones. Store via raw SQL: pgvector's `vector` type
+      // isn't representable in the Prisma schema (modeled as Unsupported).
+      const chunks = await this.prisma.chunk.findMany({
+        where: { documentId },
+        orderBy: { ordinal: 'asc' },
+        select: { id: true, content: true },
+      });
+      if (chunks.length === 0) {
+        await this.finishJob(embedJob.id, 'succeeded');
+        return;
+      }
+
+      const vectors = await this.embedding.embed(
+        chunks.map((c) => c.content),
+        'passage',
+      );
+
+      for (let i = 0; i < chunks.length; i++) {
+        const vector = vectors[i];
+        if (!vector || vector.length === 0) continue;
+        const literal = `[${vector.join(',')}]`;
+        await this.prisma.$executeRaw`
+          INSERT INTO embeddings (id, chunk_id, embedding, model, created_at)
+          VALUES (${randomUUID()}::uuid, ${chunks[i].id}::uuid, ${literal}::vector, ${this.embedding.model}, now())
+        `;
+      }
+      await this.finishJob(embedJob.id, 'succeeded');
+    } catch (error) {
+      // Embedding failure doesn't fail the document — it stays processed + FTS-searchable,
+      // just without semantic vectors (hybrid search falls back to lexical for it).
+      await this.failJobSoftly(embedJob.id, error, `Embedding failed for document ${documentId}`);
+    }
   }
 
   private async runAutoTagAndRelate(documentId: string, workspaceId: string, text: string) {
@@ -196,7 +242,7 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private startJob(documentId: string, jobType: 'extract' | 'chunk' | 'autotag' | 'relate') {
+  private startJob(documentId: string, jobType: 'extract' | 'chunk' | 'autotag' | 'relate' | 'embed') {
     return this.prisma.processingJob.create({
       data: { documentId, jobType, status: 'running', startedAt: new Date() },
     });

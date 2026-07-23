@@ -1,15 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '../../prisma/generated/prisma/client';
 import { SNIPPET_HIGHLIGHT_START, SNIPPET_HIGHLIGHT_END } from '@pkos/contracts';
 import { PrismaService } from '../prisma/prisma.service';
+import { EMBEDDING_PORT, type EmbeddingPort } from '../ai/embedding.port';
 import { ChunkHit, SearchOptions, SearchPage, SearchPort, SearchResult } from './search.port';
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const RRF_K = 60; // reciprocal-rank-fusion constant; larger = flatter weighting
 
 @Injectable()
 export class PostgresSearchAdapter implements SearchPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(EMBEDDING_PORT) private readonly embedding: EmbeddingPort,
+  ) {}
 
   async searchFullText(workspaceId: string, query: string, opts?: SearchOptions): Promise<SearchPage> {
     const limit = Math.min(Math.max(opts?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
@@ -61,13 +66,31 @@ export class PostgresSearchAdapter implements SearchPort {
     documentId?: string,
   ): Promise<ChunkHit[]> {
     const k = Math.min(Math.max(limit, 1), MAX_LIMIT);
-    const documentFilter = documentId
-      ? Prisma.sql`AND c.document_id = ${documentId}::uuid`
-      : Prisma.empty;
 
+    // Lexical only when embeddings are off; otherwise fuse lexical + semantic with RRF so a
+    // chunk ranked highly by either method surfaces (keyword precision + semantic recall).
+    if (!this.embedding.isAvailable) {
+      return this.lexicalChunks(workspaceId, query, k, documentId);
+    }
+
+    const [lexical, semantic] = await Promise.all([
+      this.lexicalChunks(workspaceId, query, k * 2, documentId),
+      this.semanticChunks(workspaceId, query, k * 2, documentId),
+    ]);
+    return this.fuse(lexical, semantic, k);
+  }
+
+  private async lexicalChunks(
+    workspaceId: string,
+    query: string,
+    limit: number,
+    documentId?: string,
+  ): Promise<ChunkHit[]> {
+    const documentFilter = documentId ? Prisma.sql`AND c.document_id = ${documentId}::uuid` : Prisma.empty;
     return this.prisma.$queryRaw<ChunkHit[]>`
       WITH q AS (SELECT plainto_tsquery('simple', f_unaccent(${query})) AS query)
       SELECT
+        c.id AS "chunkId",
         c.document_id AS "documentId",
         d.title AS "title",
         c.content AS "content",
@@ -80,7 +103,56 @@ export class PostgresSearchAdapter implements SearchPort {
         ${documentFilter}
         AND c.tsv @@ q.query
       ORDER BY "rank" DESC
-      LIMIT ${k}
+      LIMIT ${limit}
     `;
+  }
+
+  private async semanticChunks(
+    workspaceId: string,
+    query: string,
+    limit: number,
+    documentId?: string,
+  ): Promise<ChunkHit[]> {
+    const [queryVector] = await this.embedding.embed([query], 'query');
+    if (!queryVector || queryVector.length === 0) return [];
+    const literal = `[${queryVector.join(',')}]`;
+    const documentFilter = documentId ? Prisma.sql`AND c.document_id = ${documentId}::uuid` : Prisma.empty;
+
+    // Cosine distance (<=>) on the HNSW-indexed embedding; rank as 1 - distance (similarity).
+    return this.prisma.$queryRaw<ChunkHit[]>`
+      SELECT
+        c.id AS "chunkId",
+        c.document_id AS "documentId",
+        d.title AS "title",
+        c.content AS "content",
+        c.ordinal AS "ordinal",
+        (1 - (e.embedding <=> ${literal}::vector))::float AS "rank"
+      FROM embeddings e
+      JOIN chunks c ON c.id = e.chunk_id
+      JOIN documents d ON d.id = c.document_id
+      WHERE c.workspace_id = ${workspaceId}::uuid
+        ${documentFilter}
+      ORDER BY e.embedding <=> ${literal}::vector
+      LIMIT ${limit}
+    `;
+  }
+
+  /** Reciprocal rank fusion: score each chunk by sum of 1/(K + position) across both lists,
+   * then return the top-k unique chunks. Robust to the two methods' incomparable score scales. */
+  private fuse(lexical: ChunkHit[], semantic: ChunkHit[], k: number): ChunkHit[] {
+    const scores = new Map<string, number>();
+    const byId = new Map<string, ChunkHit>();
+
+    for (const list of [lexical, semantic]) {
+      list.forEach((hit, position) => {
+        scores.set(hit.chunkId, (scores.get(hit.chunkId) ?? 0) + 1 / (RRF_K + position + 1));
+        if (!byId.has(hit.chunkId)) byId.set(hit.chunkId, hit);
+      });
+    }
+
+    return [...scores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, k)
+      .map(([chunkId, score]) => ({ ...(byId.get(chunkId) as ChunkHit), rank: score }));
   }
 }

@@ -58,7 +58,7 @@ that module changes, since every consumer depends on the port token
 | Document upload | ✅ | PDF/DOCX/MD/TXT, 20MB limit, local filesystem storage |
 | Async ingestion pipeline | ✅ | extract → chunk → autotag → relate, BullMQ/Upstash |
 | Full-text search | ✅ | Postgres `simple` tsvector + `unaccent` (VI diacritics-insensitive); title searchable + weighted; paginated (`limit`/`offset`, returns `total`) |
-| Semantic/hybrid search | ❌ dropped | OpenRouter has no embeddings endpoint — see AI note below |
+| Semantic/hybrid RAG | ✅ (opt-in) | Local embeddings via transformers.js (`multilingual-e5-small`, 384d); chat retrieval fuses lexical + semantic (RRF). Off unless `EMBEDDINGS_ENABLED=true`. `/search` itself stays full-text |
 | Auto-tagging | ✅ (heuristic) | Top-5 by unigram frequency + recurring bigram phrases (helps VI), pure numbers dropped — still not real NLP/segmentation |
 | Relationship detection | ✅ (naive stub) | `graph_edges` from shared tags only, no similarity leg |
 | AI chat (per document) | ✅ | Retrieves most-relevant in-document chunks per question (lexical), falls back to doc head; last 10 messages as context |
@@ -99,8 +99,9 @@ Full OpenAPI schema (auto-generated, always current): run the API and open `/doc
 ## Database models (Prisma, `apps/api/prisma/schema.prisma`)
 
 `users`, `workspaces`, `workspace_members`, `documents`, `document_content` (has a
-generated `tsv` column not modeled in Prisma — see structure.md), `chunks`, `embeddings`
-(schema only, **unused** — no embeddings provider), `tags`, `document_tags`,
+generated `tsv` column not modeled in Prisma — see structure.md), `chunks` (also has a
+generated `tsv` column for chunk-level RAG), `embeddings` (`vector(384)`, populated by the
+opt-in embed stage), `tags`, `document_tags`,
 `processing_jobs`, `graph_nodes`, `graph_edges`, `ai_chat_sessions`, `ai_chat_messages`.
 
 Full status/relationships table: `.claude/docs/features.md`.
@@ -137,10 +138,13 @@ sandbox even with `--experimental-vm-modules`. Build first: `pnpm --filter @pkos
 
 ## Notable decisions that changed from the original plan
 
-- **AI provider is OpenRouter (chat-only), not OpenAI.** OpenRouter has no embeddings
-  endpoint, so semantic/hybrid search was dropped entirely — search is full-text only.
-- **`pgvector`/`vector(1536)`/`hnsw` remain in the schema, unused** — harmless, kept in case
-  a future embeddings-capable provider is added.
+- **AI chat provider is OpenRouter (chat-only), not OpenAI.** OpenRouter has no embeddings
+  endpoint, so embeddings are produced locally instead (see next bullet); `/search` remains
+  full-text only, while chat retrieval can use semantic/hybrid.
+- **Embeddings are local via transformers.js** (`EmbeddingPort` → `TransformersEmbeddingAdapter`,
+  `multilingual-e5-small`, opt-in `EMBEDDINGS_ENABLED`). `pgvector`/`hnsw` are now used;
+  the `embedding` column was resized `vector(1536)` → `vector(384)` to match the model.
+  Chat RAG (`searchChunks`) fuses lexical + semantic with reciprocal rank fusion when enabled.
 - **Prisma v7** removed the pooled/direct URL split, needs `moduleFormat = "cjs"` in the
   generator block to build under NestJS, and requires a driver adapter
   (`@prisma/adapter-pg`) instead of the old built-in query engine.

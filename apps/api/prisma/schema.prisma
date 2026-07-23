@@ -139,7 +139,7 @@ model Chunk {
 model Embedding {
   id        String                      @id @default(uuid()) @db.Uuid
   chunkId   String                      @unique @map("chunk_id") @db.Uuid
-  embedding Unsupported("vector(1536)")
+  embedding Unsupported("vector(384)")
   model     String
   createdAt DateTime                    @default(now()) @map("created_at")
 
