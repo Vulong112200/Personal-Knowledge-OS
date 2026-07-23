@@ -27,7 +27,12 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
     this.worker = new Worker<DocumentProcessingPayload>(
       DOCUMENT_PROCESSING_QUEUE,
       (job) => this.process(job),
-      { connection: createRedisConnection() },
+      // Default concurrency is 1 (fully serial) — bumped so a bulk folder upload of
+      // hundreds of documents doesn't queue up an extremely long serial tail. The
+      // pipeline here is local/CPU-bound (no AI/OpenRouter calls), so this carries no
+      // rate-limit risk; GraphService's node/edge upserts are atomic (see graph.service.ts)
+      // so concurrent jobs sharing a tag no longer race.
+      { connection: createRedisConnection(), concurrency: 4 },
     );
     this.worker.on('failed', (job, err) => {
       this.logger.error(`Job ${job?.id} failed: ${err.message}`);

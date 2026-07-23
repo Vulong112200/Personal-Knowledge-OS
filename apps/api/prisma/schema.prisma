@@ -34,7 +34,7 @@ model Workspace {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   members      WorkspaceMember[]
   documents    Document[]
   tags         Tag[]
@@ -97,7 +97,7 @@ model Document {
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
   workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  uploader     User             @relation(fields: [uploadedBy], references: [id])
+  uploader     User             @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
   content      DocumentContent?
   chunks       Chunk[]
   tags         DocumentTag[]
@@ -231,12 +231,14 @@ model GraphNode {
   outgoing  GraphEdge[] @relation("EdgeSource")
   incoming  GraphEdge[] @relation("EdgeTarget")
 
+  @@unique([workspaceId, nodeType, refId])
   @@map("graph_nodes")
 }
 
 enum GraphEdgeType {
   shares_tag
   similar_content
+  has_tag
 }
 
 model GraphEdge {
@@ -252,6 +254,7 @@ model GraphEdge {
   sourceNode GraphNode @relation("EdgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
   targetNode GraphNode @relation("EdgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
 
+  @@unique([workspaceId, edgeType, sourceNodeId, targetNodeId])
   @@map("graph_edges")
 }
 
@@ -266,7 +269,7 @@ model AiChatSession {
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   document  Document?       @relation(fields: [documentId], references: [id], onDelete: SetNull)
-  creator   User            @relation(fields: [createdBy], references: [id])
+  creator   User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   messages  AiChatMessage[]
 
   @@map("ai_chat_sessions")

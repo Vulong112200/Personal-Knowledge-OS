@@ -2,8 +2,12 @@
 
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { Search as SearchIcon } from "lucide-react";
 import { SNIPPET_HIGHLIGHT_START, SNIPPET_HIGHLIGHT_END } from "@pkos/contracts";
 import { apiFetch } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface SearchResult {
   documentId: string;
@@ -25,7 +29,9 @@ function renderSnippet(snippet: string): ReactNode {
     const [highlighted, ...rest] = part.split(SNIPPET_HIGHLIGHT_END);
     return (
       <span key={i}>
-        <mark className="rounded bg-yellow-200 px-0.5 dark:bg-yellow-900">{highlighted}</mark>
+        <mark className="rounded bg-indigo-100 px-0.5 font-medium text-indigo-900 dark:bg-indigo-500/25 dark:text-indigo-200">
+          {highlighted}
+        </mark>
         {rest.join(SNIPPET_HIGHLIGHT_END)}
       </span>
     );
@@ -47,38 +53,30 @@ export function SearchView() {
   return (
     <div className="flex w-full max-w-2xl flex-col gap-6 p-8">
       <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          type="text"
-          placeholder="Search your documents..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 rounded-md border border-black/[.08] bg-transparent px-3 py-2 text-sm dark:border-white/[.145]"
-        />
-        <button
-          type="submit"
-          disabled={search.isPending}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
-        >
+        <div className="relative flex-1">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search your documents..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button type="submit" disabled={search.isPending}>
           Search
-        </button>
+        </Button>
       </form>
 
       <div className="flex flex-col gap-2">
-        {search.data?.results.length === 0 && (
-          <p className="text-sm text-zinc-500">No matches.</p>
-        )}
+        {search.data?.results.length === 0 && <p className="text-sm text-muted-foreground">No matches.</p>}
         {search.data?.results.map((result) => (
-          <div
-            key={result.documentId}
-            className="flex flex-col gap-1 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
-          >
-            <span className="text-sm font-medium text-black dark:text-zinc-50">
-              {result.title}
-            </span>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              {renderSnippet(result.snippet)}
-            </p>
-          </div>
+          <Card key={result.documentId}>
+            <CardContent className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-foreground">{result.title}</span>
+              <p className="text-sm text-muted-foreground">{renderSnippet(result.snippet)}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </div>

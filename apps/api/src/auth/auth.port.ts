@@ -5,6 +5,7 @@ export interface AuthUser {
 
 export interface AuthPort {
   verifyToken(token: string): Promise<AuthUser>;
+  deleteUser(id: string): Promise<void>;
 }
 
 export const AUTH_PORT = Symbol('AUTH_PORT');

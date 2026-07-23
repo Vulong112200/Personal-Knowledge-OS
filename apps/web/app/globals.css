@@ -1,26 +1,118 @@
 @import "tailwindcss";
 
+/* Switch Tailwind's `dark:` variant from prefers-color-scheme to class-based,
+   driven by next-themes toggling `.dark` on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light theme surfaces */
+  --background: #f7f7fc;
+  --background-muted: #eef0fa;
+  --foreground: #1e1b2e;
+  --muted-foreground: #6b6b80;
+  --card: #ffffff;
+  --border: #e4e4f1;
+  --ring: #818cf8;
+
+  /* Brand */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+  --accent: #8b5cf6;
+  --accent-hover: #7c3aed;
+
+  /* Status */
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --info: #0284c7;
+
+  /* Shadows */
+  --shadow-soft: 0 1px 2px 0 rgb(30 27 46 / 0.04), 0 1px 3px 0 rgb(30 27 46 / 0.06);
+  --shadow-card: 0 4px 16px -4px rgb(30 27 46 / 0.1), 0 2px 6px -2px rgb(30 27 46 / 0.06);
+  --shadow-glow: 0 8px 24px -6px rgb(99 102 241 / 0.45);
+}
+
+.dark {
+  --background: #100e1c;
+  --background-muted: #1b1830;
+  --foreground: #ede9f7;
+  --muted-foreground: #9491b0;
+  --card: #191730;
+  --border: rgba(167, 139, 250, 0.16);
+  --ring: #a5b4fc;
+
+  --primary: #818cf8;
+  --primary-hover: #a5b4fc;
+  --primary-foreground: #100e1c;
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+
+  --shadow-soft: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-card: 0 4px 20px -4px rgb(0 0 0 / 0.45);
+  --shadow-glow: 0 8px 28px -6px rgb(129 140 248 / 0.35);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-muted: var(--background-muted);
   --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
+  --shadow-soft: var(--shadow-soft);
+  --shadow-card: var(--shadow-card);
+  --shadow-glow: var(--shadow-glow);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .gradient-text {
+    background-image: linear-gradient(135deg, var(--color-indigo-500), var(--color-violet-500));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .gradient-brand {
+    background-image: linear-gradient(135deg, var(--color-indigo-500) 0%, var(--color-violet-500) 100%);
+  }
+
+  .auth-bg {
+    background-image:
+      radial-gradient(circle at 15% 20%, color-mix(in oklch, var(--color-indigo-400) 30%, transparent), transparent 55%),
+      radial-gradient(circle at 85% 80%, color-mix(in oklch, var(--color-violet-400) 30%, transparent), transparent 55%);
+  }
+}
+
+@layer base {
+  ::selection {
+    background: var(--color-indigo-200);
+    color: var(--color-indigo-900);
+  }
+  .dark ::selection {
+    background: var(--color-indigo-800);
+    color: var(--color-indigo-50);
+  }
 }

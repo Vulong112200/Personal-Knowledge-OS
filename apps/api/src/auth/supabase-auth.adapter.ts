@@ -43,6 +43,27 @@ export class SupabaseAuthAdapter implements AuthPort {
     }
   }
 
+  async deleteUser(id: string): Promise<void> {
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY is not configured — cannot delete Supabase auth users');
+    }
+
+    const res = await fetch(`${process.env.SUPABASE_URL}/auth/v1/admin/users/${id}`, {
+      method: 'DELETE',
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+    });
+
+    // A 404 means the Supabase auth user is already gone — treat as success so retries
+    // (e.g. after a prior partial failure) are idempotent.
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`Supabase admin deleteUser failed: ${res.status} ${await res.text()}`);
+    }
+  }
+
   private toAuthUser(payload: JWTPayload): AuthUser {
     if (typeof payload.sub !== 'string' || typeof payload.email !== 'string') {
       throw new UnauthorizedException('Token missing sub/email claims');

@@ -72,6 +72,16 @@ describe('AppController (e2e)', () => {
     expect(res.status).toBe(401);
   });
 
+  it('GET /graph without a token is rejected', async () => {
+    const res = await fetch(`${BASE_URL}/graph`);
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /documents/:id/related/graph without a token is rejected', async () => {
+    const res = await fetch(`${BASE_URL}/documents/00000000-0000-0000-0000-000000000000/related/graph`);
+    expect(res.status).toBe(401);
+  });
+
   // Auth-success paths (a valid Supabase token producing a 200 from /me, /documents,
   // etc.) require a real Supabase-issued JWT and are exercised manually against the
   // live project instead — see the milestone verification notes in the plan doc.

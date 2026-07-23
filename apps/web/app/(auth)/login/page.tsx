@@ -4,6 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,43 +34,41 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
-      <form
-        onSubmit={handleSubmit}
-        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950"
-      >
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">Log in</h1>
+    <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-card">
+      <div className="mb-6 text-center">
+        <span className="gradient-text text-2xl font-bold">PKOS</span>
+        <h1 className="mt-2 text-lg font-semibold text-foreground">Log in</h1>
+      </div>
 
-        <input
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <Input
           type="email"
           placeholder="Email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="rounded-md border border-black/[.08] bg-transparent px-3 py-2 text-sm dark:border-white/[.145]"
         />
-        <input
-          type="password"
+        <PasswordInput
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          className="rounded-md border border-black/[.08] bg-transparent px-3 py-2 text-sm dark:border-white/[.145]"
         />
+        <div className="flex justify-end">
+          <Link href="/forgot-password" className="text-sm font-medium text-primary hover:text-primary-hover">
+            Forgot password?
+          </Link>
+        </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-danger">{error}</p>}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
-        >
+        <Button type="submit" size="lg" disabled={loading} className="w-full">
           {loading ? "Logging in..." : "Log in"}
-        </button>
+        </Button>
 
-        <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-center text-sm text-muted-foreground">
           No account?{" "}
-          <Link href="/signup" className="font-medium text-black underline dark:text-zinc-50">
+          <Link href="/signup" className="font-medium text-primary hover:text-primary-hover">
             Sign up
           </Link>
         </p>

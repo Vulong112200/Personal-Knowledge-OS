@@ -1,15 +1,16 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
+import { ALLOWED_DOCUMENT_EXTENSIONS, MAX_DOCUMENT_SIZE_BYTES } from '@pkos/contracts';
 import { PrismaService } from '../prisma/prisma.service';
 import { STORAGE_PORT, type StoragePort } from '../storage/storage.port';
 import { QUEUE_PORT, type QueuePort } from '../queue/queue.port';
 import { DOCUMENT_PROCESSING_QUEUE } from '../ingestion/document-processing.constants';
 import { CurrentUserPayload } from '../users/users.service';
 
-export const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
+export const MAX_SIZE_BYTES = MAX_DOCUMENT_SIZE_BYTES;
 
-const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.md', '.txt']);
+const ALLOWED_EXTENSIONS = new Set<string>(ALLOWED_DOCUMENT_EXTENSIONS);
 
 @Injectable()
 export class DocumentsService {
