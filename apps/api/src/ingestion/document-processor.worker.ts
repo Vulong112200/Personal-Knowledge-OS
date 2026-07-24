@@ -15,11 +15,41 @@ import { extractKeywords } from './extract-keywords';
 import { runOcrOnPdf } from './run-ocr';
 
 const OCR_ENABLED = process.env.OCR_ENABLED !== 'false';
+// OCR (tesseract.js) is memory- and CPU-heavy. The worker runs several jobs concurrently, so
+// gate OCR separately to a small limit to avoid multiple scanned PDFs spiking memory at once.
+const OCR_CONCURRENCY = Math.max(1, Number(process.env.OCR_CONCURRENCY) || 1);
+
+/** Minimal counting semaphore — limits how many callers hold the resource at once. */
+class Semaphore {
+  private active = 0;
+  private readonly waiters: Array<() => void> = [];
+  constructor(private readonly max: number) {}
+
+  acquire(): Promise<() => void> {
+    return new Promise<() => void>((resolve) => {
+      const tryAcquire = () => {
+        if (this.active < this.max) {
+          this.active++;
+          resolve(() => this.release());
+        } else {
+          this.waiters.push(tryAcquire);
+        }
+      };
+      tryAcquire();
+    });
+  }
+
+  private release() {
+    this.active--;
+    this.waiters.shift()?.();
+  }
+}
 
 @Injectable()
 export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DocumentProcessor.name);
   private worker!: Worker<DocumentProcessingPayload>;
+  private readonly ocrSemaphore = new Semaphore(OCR_CONCURRENCY);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -67,9 +97,30 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async runExtract(document: { id: string; storageKey: string; originalFilename: string }) {
+  private async runExtract(document: {
+    id: string;
+    source: 'upload' | 'note';
+    storageKey: string | null;
+    originalFilename: string | null;
+  }) {
     const extractJob = await this.startJob(document.id, 'extract');
 
+    // Notes carry their Markdown in document_content already (written by the create/update
+    // endpoint) — there's no stored file to fetch, extract, or OCR. Chunk that text directly.
+    if (document.source === 'note') {
+      const existing = await this.prisma.documentContent.findUnique({ where: { documentId: document.id } });
+      const noteText = existing?.textContent ?? '';
+      await this.finishJob(extractJob.id, 'succeeded');
+      if (!noteText.trim()) {
+        this.logger.warn(`Note ${document.id} has empty content — 0 chunks/tags will be produced.`);
+      }
+      await this.runChunk(document.id, noteText);
+      return;
+    }
+
+    if (!document.storageKey || !document.originalFilename) {
+      throw new Error(`Uploaded document ${document.id} is missing storageKey/originalFilename.`);
+    }
     const buffer = await this.storage.getObject(document.storageKey);
     const extension = extname(document.originalFilename).toLowerCase();
     const { text: extractedText, needsOcr } = await extractText(buffer, extension);
@@ -163,6 +214,14 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
       for (let i = 0; i < chunks.length; i++) {
         const vector = vectors[i];
         if (!vector || vector.length === 0) continue;
+        // Guard against embedding-config drift: if the model's output width doesn't match the
+        // pgvector column (embedding.dimensions), every INSERT would fail with an opaque
+        // pgvector error. Fail fast with a clear message instead (caught → failJobSoftly).
+        if (vector.length !== this.embedding.dimensions) {
+          throw new Error(
+            `Embedding dimension mismatch for model "${this.embedding.model}": produced ${vector.length} dims but the DB vector column / EMBEDDING_DIMENSIONS expects ${this.embedding.dimensions}. Align EMBEDDING_DIMENSIONS, the embeddings column type, and re-run the migration.`,
+          );
+        }
         const literal = `[${vector.join(',')}]`;
         await this.prisma.$executeRaw`
           INSERT INTO embeddings (id, chunk_id, embedding, model, created_at)
@@ -204,6 +263,8 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
     const relateJob = await this.startJob(documentId, 'relate');
     try {
       await this.graphService.relateByTags(workspaceId, documentId);
+      // Backlinks: turn [[wiki-links]] in the content into real document→document edges.
+      await this.graphService.relateByLinks(workspaceId, documentId, text);
       await this.finishJob(relateJob.id, 'succeeded');
     } catch (error) {
       await this.failJobSoftly(relateJob.id, error, `Relationship detection failed for document ${documentId}`);
@@ -212,6 +273,8 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
 
   private async tryOcr(documentId: string, buffer: Buffer): Promise<string> {
     this.logger.log(`Document ${documentId} has no text layer — attempting OCR...`);
+    // Bound concurrent OCR runs regardless of the worker's job concurrency (memory guard).
+    const release = await this.ocrSemaphore.acquire();
     try {
       const text = await runOcrOnPdf(buffer);
       if (text) this.logger.log(`OCR recovered ${text.length} chars for document ${documentId}.`);
@@ -220,6 +283,8 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`OCR failed for document ${documentId}: ${message}`);
       return '';
+    } finally {
+      release();
     }
   }
 

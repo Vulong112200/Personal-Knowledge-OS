@@ -3,7 +3,7 @@ import { z } from "zod";
 export const graphNodeTypeSchema = z.enum(["document", "tag"]);
 export type GraphNodeType = z.infer<typeof graphNodeTypeSchema>;
 
-export const graphEdgeTypeSchema = z.enum(["shares_tag", "similar_content", "has_tag"]);
+export const graphEdgeTypeSchema = z.enum(["shares_tag", "similar_content", "has_tag", "links_to"]);
 export type GraphEdgeType = z.infer<typeof graphEdgeTypeSchema>;
 
 export const graphNodeSchema = z.object({

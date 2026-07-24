@@ -1,22 +1,23 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
+import type { ChatSource } from "@pkos/contracts";
 import { apiFetch } from "@/lib/api";
+import { Markdown } from "@/components/markdown";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+
+// Re-exported under the historical name so existing call sites keep compiling.
+export type ChatSourceItem = ChatSource;
 
 export interface ChatMessageItem {
   id: string;
   role: "user" | "assistant";
   content: string;
-}
-
-export interface ChatSourceItem {
-  index: number;
-  documentId: string;
-  title: string;
+  // Persisted per assistant message (whole-KB chat only); null/absent otherwise.
+  sources?: ChatSource[] | null;
 }
 
 interface ChatHistory {
@@ -27,19 +28,22 @@ interface ChatHistory {
 interface SendResult {
   available: boolean;
   reply?: string;
-  sources?: ChatSourceItem[];
+  sources?: ChatSource[];
 }
 
 function Bubble({ role, content }: { role: "user" | "assistant"; content: string }) {
+  const base =
+    role === "user"
+      ? "self-end max-w-[85%] rounded-2xl rounded-br-sm gradient-brand px-3 py-2 text-sm text-white"
+      : "self-start max-w-[85%] rounded-2xl rounded-bl-sm bg-background-muted px-3 py-2 text-sm text-foreground";
+
   return (
-    <div
-      className={
-        role === "user"
-          ? "self-end max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm gradient-brand px-3 py-2 text-sm text-white"
-          : "self-start max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-bl-sm bg-background-muted px-3 py-2 text-sm text-foreground"
-      }
-    >
-      {content}
+    <div className={base}>
+      {role === "assistant" ? (
+        <Markdown>{content}</Markdown>
+      ) : (
+        <div className="whitespace-pre-wrap break-words">{content}</div>
+      )}
     </div>
   );
 }
@@ -57,12 +61,11 @@ export function ChatPanel({
   sendUrl: string;
   placeholder?: string;
   emptyHint?: string;
-  renderSources?: (sources: ChatSourceItem[]) => ReactNode;
+  renderSources?: (sources: ChatSource[]) => ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [lastSources, setLastSources] = useState<ChatSourceItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const history = useQuery<ChatHistory>({ queryKey, queryFn: () => apiFetch(historyUrl) });
@@ -107,10 +110,15 @@ export function ChatPanel({
       if (!result.reply) {
         throw new Error("AI is not available for this workspace.");
       }
-      setLastSources(result.sources ?? []);
       queryClient.setQueryData<ChatHistory>(queryKey, (old) =>
         old
-          ? { ...old, messages: [...old.messages, { id: `${tempId}-a`, role: "assistant", content: result.reply! }] }
+          ? {
+              ...old,
+              messages: [
+                ...old.messages,
+                { id: `${tempId}-a`, role: "assistant", content: result.reply!, sources: result.sources ?? null },
+              ],
+            }
           : old,
       );
       // Confirm against the server (persisted messages replace the optimistic ones).
@@ -145,18 +153,24 @@ export function ChatPanel({
         {!history.isLoading && !hasMessages && emptyHint && (
           <p className="text-sm text-muted-foreground">{emptyHint}</p>
         )}
-        {messages?.map((m) => <Bubble key={m.id} role={m.role} content={m.content} />)}
+        {messages?.map((m) => (
+          <div key={m.id} className="flex flex-col gap-1">
+            <Bubble role={m.role} content={m.content} />
+            {/* Sources render beneath their own assistant message and persist through reload
+                because they come from the (now stored) message, not transient send state. */}
+            {renderSources && m.role === "assistant" && m.sources && m.sources.length > 0 && (
+              <div className="self-start w-full rounded-md bg-background-muted px-3 py-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Sources</span>
+                <div className="mt-1 flex flex-col gap-1">{renderSources(m.sources)}</div>
+              </div>
+            )}
+          </div>
+        ))}
         {send.isPending && (
           <div className="self-start max-w-[85%] rounded-2xl rounded-bl-sm bg-background-muted px-3 py-2 text-sm text-muted-foreground">
             <span className="inline-flex gap-1">
               <span className="animate-pulse">Assistant is thinking</span>
             </span>
-          </div>
-        )}
-        {renderSources && !send.isPending && lastSources.length > 0 && (
-          <div className="self-start w-full rounded-md bg-background-muted px-3 py-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">Sources</span>
-            <div className="mt-1 flex flex-col gap-1">{renderSources(lastSources)}</div>
           </div>
         )}
       </div>

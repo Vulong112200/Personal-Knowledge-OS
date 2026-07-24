@@ -80,17 +80,25 @@ enum StorageDriver {
   r2
 }
 
+// How a document entered the system: an uploaded file, or a note authored in-app. Notes have
+// no stored file, so all the file-specific columns below are nullable.
+enum DocumentSource {
+  upload
+  note
+}
+
 model Document {
   id               String         @id @default(uuid()) @db.Uuid
   workspaceId      String         @map("workspace_id") @db.Uuid
   uploadedBy       String         @map("uploaded_by") @db.Uuid
+  source           DocumentSource @default(upload)
   title            String
-  originalFilename String         @map("original_filename")
-  mimeType         String         @map("mime_type")
-  sizeBytes        BigInt         @map("size_bytes")
-  checksum         String
-  storageDriver    StorageDriver  @map("storage_driver")
-  storageKey       String         @map("storage_key")
+  originalFilename String?        @map("original_filename")
+  mimeType         String?        @map("mime_type")
+  sizeBytes        BigInt?        @map("size_bytes")
+  checksum         String?
+  storageDriver    StorageDriver? @map("storage_driver")
+  storageKey       String?        @map("storage_key")
   status           DocumentStatus @default(uploaded)
   errorMessage     String?        @map("error_message")
   createdAt        DateTime       @default(now()) @map("created_at")
@@ -154,12 +162,16 @@ model Tag {
   id          String  @id @default(uuid()) @db.Uuid
   workspaceId String  @map("workspace_id") @db.Uuid
   name        String
-  color       String?
+  // Diacritics-folded dedup key (matches Postgres f_unaccent). `name` is the display surface
+  // form (first spelling wins); accent variants collapse onto one row via this key.
+  normalizedName String @map("normalized_name")
+  color          String?
 
   workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   documents DocumentTag[]
 
   @@unique([workspaceId, name])
+  @@unique([workspaceId, normalizedName])
   @@map("tags")
 }
 
@@ -239,6 +251,7 @@ enum GraphEdgeType {
   shares_tag
   similar_content
   has_tag
+  links_to // direct document→document edge from a [[wiki-link]] in note content
 }
 
 model GraphEdge {
@@ -289,6 +302,10 @@ model AiChatMessage {
   sessionId String   @map("session_id") @db.Uuid
   role      ChatRole
   content   String
+  // Cited source documents ([#n] markers) for whole-KB assistant replies, persisted so
+  // citations survive reload. Shape: ChatSource[] (see packages/contracts chat.ts). NULL for
+  // user messages and per-document assistant replies.
+  sources   Json?
   createdAt DateTime @default(now()) @map("created_at")
 
   session AiChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)

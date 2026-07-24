@@ -1,16 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { foldDiacritics } from '../ingestion/extract-keywords';
 
 @Injectable()
 export class TagsService {
   constructor(private readonly prisma: PrismaService) {}
 
   findOrCreate(workspaceId: string, name: string) {
-    const normalized = name.trim().toLowerCase();
+    // Display form keeps diacritics; dedup on the folded key so "chi phí" and "chi phi" resolve
+    // to the same tag. Upserting on the normalized key means the first surface form wins as the
+    // displayed name (update:{} is a no-op that just returns the existing row).
+    const display = name.trim().toLowerCase();
+    const normalizedName = foldDiacritics(display);
     return this.prisma.tag.upsert({
-      where: { workspaceId_name: { workspaceId, name: normalized } },
+      where: { workspaceId_normalizedName: { workspaceId, normalizedName } },
       update: {},
-      create: { workspaceId, name: normalized },
+      create: { workspaceId, name: display, normalizedName },
     });
   }
 

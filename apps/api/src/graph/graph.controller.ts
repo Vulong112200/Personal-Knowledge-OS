@@ -16,4 +16,9 @@ export class GraphController {
   relatedGraph(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.graphService.getEgoGraph(user.defaultWorkspaceId, id);
   }
+
+  @Get('backlinks')
+  backlinks(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.graphService.getBacklinks(user.defaultWorkspaceId, id);
+  }
 }

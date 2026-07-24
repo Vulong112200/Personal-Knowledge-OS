@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { foldDiacritics } from '../ingestion/extract-keywords';
 
 const WORKSPACE_GRAPH_NODE_LIMIT = 500;
 
+// Matches [[Title]] and [[Title|alias]] — the target is the part before any pipe.
+const WIKI_LINK_RE = /\[\[([^\]|]+)(?:\|[^\]]*)?\]\]/g;
+
 type GraphNodeType = 'document' | 'tag';
-type GraphEdgeType = 'shares_tag' | 'similar_content' | 'has_tag';
+type GraphEdgeType = 'shares_tag' | 'similar_content' | 'has_tag' | 'links_to';
 
 interface GraphNodeRow {
   id: string;
@@ -85,6 +89,72 @@ export class GraphService {
       const tagNode = await this.ensureNode(workspaceId, 'tag', link.tagId, link.tag.name);
       await this.ensureEdge(workspaceId, documentNode.id, tagNode.id, 'has_tag');
     }
+  }
+
+  /** Parse [[wiki-links]] from a document's content and materialize real document→document
+   * `links_to` edges to the referenced documents (resolved by title, diacritics-insensitive).
+   * Idempotent on reprocess: this document's prior outgoing links_to edges are cleared first.
+   * Unresolved links (no document with that title) are simply skipped — no placeholder node. */
+  async relateByLinks(workspaceId: string, documentId: string, content: string) {
+    const existingNode = await this.prisma.graphNode.findFirst({
+      where: { workspaceId, nodeType: 'document', refId: documentId },
+    });
+    // Clear this document's prior outgoing links so an edit that removes a link removes its edge.
+    if (existingNode) {
+      await this.prisma.graphEdge.deleteMany({
+        where: { workspaceId, edgeType: 'links_to', sourceNodeId: existingNode.id },
+      });
+    }
+
+    const targetTitles = this.parseWikiLinks(content);
+    if (targetTitles.length === 0) return;
+
+    // Resolve titles → documents within the workspace by a diacritics-folded, lowercased key
+    // (matches how tags/search fold accents), so [[Bao cao]] links to "Báo cáo".
+    const docs = await this.prisma.document.findMany({
+      where: { workspaceId },
+      select: { id: true, title: true },
+    });
+    const byFolded = new Map(docs.map((d) => [foldDiacritics(d.title.trim().toLowerCase()), d]));
+
+    const self = await this.prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    const sourceNode = await this.ensureNode(workspaceId, 'document', documentId, self.title);
+
+    const linked = new Set<string>();
+    for (const title of targetTitles) {
+      const target = byFolded.get(foldDiacritics(title.trim().toLowerCase()));
+      if (!target || target.id === documentId || linked.has(target.id)) continue; // unresolved/self/dup
+      linked.add(target.id);
+      const targetNode = await this.ensureNode(workspaceId, 'document', target.id, target.title);
+      await this.ensureEdge(workspaceId, sourceNode.id, targetNode.id, 'links_to');
+    }
+  }
+
+  private parseWikiLinks(content: string): string[] {
+    const titles = new Set<string>();
+    for (const match of content.matchAll(WIKI_LINK_RE)) {
+      const title = match[1].trim();
+      if (title) titles.add(title);
+    }
+    return [...titles];
+  }
+
+  /** "Linked references": documents whose content links TO `documentId` via a [[wiki-link]]
+   * (incoming links_to edges). */
+  async getBacklinks(workspaceId: string, documentId: string) {
+    const node = await this.prisma.graphNode.findFirst({
+      where: { workspaceId, nodeType: 'document', refId: documentId },
+    });
+    if (!node) return [];
+
+    const edges = await this.prisma.graphEdge.findMany({
+      where: { workspaceId, edgeType: 'links_to', targetNodeId: node.id },
+    });
+    const sourceNodeIds = [...new Set(edges.map((e) => e.sourceNodeId))];
+    if (sourceNodeIds.length === 0) return [];
+
+    const sourceNodes = await this.prisma.graphNode.findMany({ where: { id: { in: sourceNodeIds } } });
+    return sourceNodes.map((n) => ({ documentId: n.refId, title: n.label }));
   }
 
   /** Flat list for the existing "Related documents" panel: documents that share at least

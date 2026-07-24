@@ -2,26 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useDropzone } from "react-dropzone";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { UploadCloud, FolderOpen, Trash2, X as XIcon } from "lucide-react";
-import { ALLOWED_DOCUMENT_EXTENSIONS, MAX_DOCUMENT_SIZE_BYTES } from "@pkos/contracts";
+import { UploadCloud, FolderOpen, Trash2, X as XIcon, NotebookPen } from "lucide-react";
+import { ALLOWED_DOCUMENT_EXTENSIONS, MAX_DOCUMENT_SIZE_BYTES, type DocumentSource } from "@pkos/contracts";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBytes } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StatusBadge, type DocumentStatus } from "@/components/ui/badge";
+import { Badge, StatusBadge, type DocumentStatus } from "@/components/ui/badge";
 import { useBatchUpload } from "./use-batch-upload";
 import { BatchUploadPanel } from "./batch-upload-panel";
 
 interface DocumentDto {
   id: string;
   title: string;
+  source: DocumentSource;
   status: DocumentStatus;
-  mimeType: string;
-  sizeBytes: string;
+  mimeType: string | null;
+  sizeBytes: string | null;
   createdAt: string;
 }
 
@@ -61,6 +62,7 @@ function partitionFiles(files: File[]): PendingSelection {
 
 export function DocumentsView() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const tag = searchParams.get("tag");
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -118,6 +120,13 @@ export function DocumentsView() {
 
   return (
     <div className="flex w-full max-w-2xl flex-col gap-6 p-8">
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={() => router.push("/documents/new")}>
+          <NotebookPen className="size-4" />
+          New note
+        </Button>
+      </div>
+
       <div
         {...getRootProps()}
         className={cn(
@@ -226,9 +235,17 @@ export function DocumentsView() {
               className="flex flex-1 flex-col gap-1 overflow-hidden transition-transform hover:translate-x-0.5"
             >
               <span className="truncate text-sm font-medium text-foreground">{doc.title}</span>
-              <span className="text-xs text-muted-foreground">{formatBytes(Number(doc.sizeBytes))}</span>
+              <span className="text-xs text-muted-foreground">
+                {doc.source === "note" ? "Note" : formatBytes(Number(doc.sizeBytes ?? 0))}
+              </span>
             </Link>
             <div className="flex items-center gap-2">
+              {doc.source === "note" && (
+                <Badge className="bg-primary/10 text-primary">
+                  <NotebookPen className="size-3" />
+                  Note
+                </Badge>
+              )}
               <StatusBadge status={doc.status} />
               <Button
                 variant="ghost"

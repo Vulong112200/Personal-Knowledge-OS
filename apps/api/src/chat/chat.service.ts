@@ -7,6 +7,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Prisma } from '../../prisma/generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AI_PORT, type AiPort, type ChatMessage } from '../ai/ai.port';
 import { SEARCH_PORT, type SearchPort, type ChunkHit } from '../search/search.port';
@@ -89,19 +90,34 @@ export class ChatService {
     return reply;
   }
 
-  private persistTurn(sessionId: string, userContent: string, assistantContent: string) {
+  private persistTurn(
+    sessionId: string,
+    userContent: string,
+    assistantContent: string,
+    sources?: ChatSource[],
+  ) {
     // Postgres now()/CURRENT_TIMESTAMP is transaction-stable, so both rows created in one
     // $transaction would share an identical created_at and their intra-turn order (ordered
     // by created_at alone) would be undefined. Stamp explicit timestamps 1ms apart so the
     // user message always sorts before its assistant reply.
     const now = Date.now();
+    // Persist citations on the assistant row so `sources` survive a reload (GET history).
+    // Omit the field entirely when there are none — leaves the column NULL.
+    const assistantData: Prisma.AiChatMessageUncheckedCreateInput = {
+      sessionId,
+      role: 'assistant',
+      content: assistantContent,
+      createdAt: new Date(now + 1),
+    };
+    // ChatSource[] is a plain JSON-serializable array; cast through unknown because Prisma's
+    // InputJsonValue requires a structural index signature that our named interface lacks.
+    if (sources && sources.length) assistantData.sources = sources as unknown as Prisma.InputJsonValue;
+
     return this.prisma.$transaction([
       this.prisma.aiChatMessage.create({
         data: { sessionId, role: 'user', content: userContent, createdAt: new Date(now) },
       }),
-      this.prisma.aiChatMessage.create({
-        data: { sessionId, role: 'assistant', content: assistantContent, createdAt: new Date(now + 1) },
-      }),
+      this.prisma.aiChatMessage.create({ data: assistantData }),
     ]);
   }
 
@@ -205,7 +221,8 @@ export class ChatService {
     if (!this.aiPort.isAvailable) return { available: false as const };
 
     // Retrieve across every document in the workspace — this is what makes chat a "second
-    // brain" rather than single-document Q&A. No embeddings needed: lexical (tsvector) top-k.
+    // brain" rather than single-document Q&A. The search adapter fuses lexical (tsvector) with
+    // semantic (pgvector) top-k via RRF when embeddings are enabled, else lexical-only.
     const hits = await this.searchPort.searchChunks(user.defaultWorkspaceId, content, WORKSPACE_CHUNK_K);
     const { context, sources } = this.buildContext(hits, MAX_WORKSPACE_CONTEXT_CHARS);
 
@@ -223,7 +240,7 @@ export class ChatService {
     ];
 
     const reply = await this.complete(messages, `workspace ${user.defaultWorkspaceId}`);
-    await this.persistTurn(session.id, content, reply);
+    await this.persistTurn(session.id, content, reply, sources);
     return { available: true as const, reply, sources };
   }
 }

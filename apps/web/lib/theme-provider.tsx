@@ -4,7 +4,9 @@ import { ThemeProvider as NextThemesProvider } from "next-themes";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
-    <NextThemesProvider attribute="class" defaultTheme="system" enableSystem>
+    // disableTransitionOnChange suppresses the color cross-fade when the theme resolves on
+    // hydration / toggle, which otherwise reads as a brief "half-dark" flash (FOUC).
+    <NextThemesProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       {children}
     </NextThemesProvider>
   );

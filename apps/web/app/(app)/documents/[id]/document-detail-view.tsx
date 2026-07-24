@@ -2,28 +2,32 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Trash2 } from "lucide-react";
+import { Download, Trash2, Pencil, RefreshCw, Link2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import { formatBytes } from "@/lib/format";
+import { linkifyWikiLinks } from "@/lib/wiki-links";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StatusBadge, type DocumentStatus } from "@/components/ui/badge";
+import { Badge, StatusBadge, type DocumentStatus } from "@/components/ui/badge";
 import { ChatPanel } from "@/components/chat-panel";
-import type { GraphResponseDto } from "@pkos/contracts";
+import { Markdown } from "@/components/markdown";
+import type { DocumentSource, GraphResponseDto, RelatedDocumentDto } from "@pkos/contracts";
 
 const ForceGraphCanvas = dynamic(() => import("../../graph/force-graph-canvas"), { ssr: false });
 
 interface DocumentDto {
   id: string;
   title: string;
-  originalFilename: string;
+  source: DocumentSource;
+  originalFilename: string | null;
   status: DocumentStatus;
-  mimeType: string;
-  sizeBytes: string;
+  mimeType: string | null;
+  sizeBytes: string | null;
   createdAt: string;
 }
 
@@ -51,6 +55,11 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
     queryFn: () => apiFetch(`/documents/${documentId}/related/graph`),
   });
 
+  const backlinks = useQuery<RelatedDocumentDto[]>({
+    queryKey: ["document", documentId, "backlinks"],
+    queryFn: () => apiFetch(`/documents/${documentId}/backlinks`),
+  });
+
   const remove = useMutation({
     mutationFn: () => apiFetch(`/documents/${documentId}`, { method: "DELETE" }),
     onSuccess: () => {
@@ -59,6 +68,18 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
     },
     onError: (err) => setActionError(err instanceof Error ? err.message : "Failed to delete document."),
   });
+
+  const reprocess = useMutation({
+    mutationFn: () => apiFetch(`/documents/${documentId}/reprocess`, { method: "POST" }),
+    onSuccess: () => {
+      // Re-fetch status/content/graph as the pipeline re-runs.
+      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+    },
+    onError: (err) => setActionError(err instanceof Error ? err.message : "Failed to reprocess document."),
+  });
+
+  const isNote = document.data?.source === "note";
 
   async function handleDownload() {
     setActionError(null);
@@ -74,8 +95,10 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement("a");
       a.href = url;
-      // Use the original filename (keeps the extension so the OS associates the file).
-      a.download = document.data?.originalFilename ?? document.data?.title ?? "document";
+      // Notes download as Markdown; uploads keep their original filename (and extension).
+      a.download = isNote
+        ? `${document.data?.title ?? "note"}.md`
+        : (document.data?.originalFilename ?? document.data?.title ?? "document");
       window.document.body.appendChild(a);
       a.click();
       a.remove();
@@ -112,11 +135,38 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
     <>
       <PageHeader
         title={document.data?.title ?? "Loading..."}
-        description={document.data ? formatBytes(Number(document.data.sizeBytes)) : undefined}
+        description={
+          document.data
+            ? isNote
+              ? "Note"
+              : formatBytes(Number(document.data.sizeBytes ?? 0))
+            : undefined
+        }
         action={
           document.data && (
             <div className="flex items-center gap-2">
+              {isNote && <Badge className="bg-primary/10 text-primary">Note</Badge>}
               <StatusBadge status={document.data.status} />
+              {isNote && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => router.push(`/documents/${documentId}/edit`)}
+                  aria-label="Edit note"
+                >
+                  <Pencil className="size-4" />
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => reprocess.mutate()}
+                disabled={reprocess.isPending}
+                aria-label="Reprocess"
+                title="Re-run the ingestion pipeline (re-extract, tag, embed, relate)"
+              >
+                <RefreshCw className={reprocess.isPending ? "size-4 animate-spin" : "size-4"} />
+              </Button>
               <Button variant="outline" size="icon" onClick={handleDownload} aria-label="Download">
                 <Download className="size-4" />
               </Button>
@@ -153,11 +203,16 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
                 No readable text yet (still processing, needs OCR, or empty).
               </p>
             )}
-            {content.data?.textContent && (
-              <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words font-sans text-sm text-foreground">
-                {content.data.textContent}
-              </pre>
-            )}
+            {content.data?.textContent &&
+              (isNote ? (
+                <div className="max-h-96 overflow-y-auto">
+                  <Markdown>{linkifyWikiLinks(content.data.textContent)}</Markdown>
+                </div>
+              ) : (
+                <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words font-sans text-sm text-foreground">
+                  {content.data.textContent}
+                </pre>
+              ))}
           </CardContent>
         </Card>
 
@@ -188,6 +243,36 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
                   }}
                 />
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Linked references</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {backlinks.isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+            {backlinks.data && backlinks.data.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No other documents link here yet. Reference this document from a note with{" "}
+                <code className="rounded bg-background-muted px-1 py-0.5 text-xs">[[{document.data?.title}]]</code>.
+              </p>
+            )}
+            {backlinks.data && backlinks.data.length > 0 && (
+              <ul className="flex flex-col gap-1">
+                {backlinks.data.map((b) => (
+                  <li key={b.documentId}>
+                    <Link
+                      href={`/documents/${b.documentId}`}
+                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                    >
+                      <Link2 className="size-3.5" />
+                      <span className="truncate">{b.title}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             )}
           </CardContent>
         </Card>

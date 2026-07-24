@@ -1,8 +1,10 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -25,9 +27,20 @@ export class DocumentsController {
     return this.documents.upload(user, file);
   }
 
+  // Declared before the ':id' routes so the static 'notes' segment isn't shadowed.
+  @Post('notes')
+  createNote(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.documents.createNote(user, body);
+  }
+
   @Get()
   list(@CurrentUser() user: CurrentUserPayload, @Query('tag') tag?: string) {
     return this.documents.list(user, tag);
+  }
+
+  @Patch(':id')
+  updateNote(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string, @Body() body: unknown) {
+    return this.documents.updateNote(user, id, body);
   }
 
   @Get(':id')
@@ -38,6 +51,11 @@ export class DocumentsController {
   @Get(':id/content')
   getContent(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.documents.getContent(user, id);
+  }
+
+  @Post(':id/reprocess')
+  reprocess(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.documents.reprocess(user, id);
   }
 
   @Delete(':id')
@@ -51,9 +69,9 @@ export class DocumentsController {
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const { document, buffer } = await this.documents.download(user, id);
-    res.setHeader('Content-Type', document.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${document.originalFilename}"`);
+    const { filename, mimeType, buffer } = await this.documents.download(user, id);
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buffer);
   }
 }

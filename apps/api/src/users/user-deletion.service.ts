@@ -30,12 +30,15 @@ export class UserDeletionService {
 
     // Best-effort: an orphaned file on disk is a cleanable nuisance; a user permanently
     // unable to delete their account because one file handle failed is a worse outcome.
+    // Notes have no stored object (storageKey is null), so skip them.
     await Promise.all(
-      documents.map((d) =>
-        this.storage
-          .deleteObject(d.storageKey)
-          .catch((err) => this.logger.warn(`Failed to delete storage object ${d.storageKey}: ${err}`)),
-      ),
+      documents
+        .filter((d): d is { id: string; storageKey: string } => d.storageKey !== null)
+        .map((d) =>
+          this.storage
+            .deleteObject(d.storageKey)
+            .catch((err) => this.logger.warn(`Failed to delete storage object ${d.storageKey}: ${err}`)),
+        ),
     );
 
     const documentIds = documents.map((d) => d.id);
