@@ -21,6 +21,10 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "auth-callback-failed") {
+      // Deliberate one-time read of a URL param on mount. It must run in an effect rather than
+      // a render-time initializer to stay hydration-safe — the server render can't see
+      // window.location, so deriving it during render would cause a client/server mismatch.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError("That sign-in link was invalid or has expired. Please try again.");
     }
   }, []);

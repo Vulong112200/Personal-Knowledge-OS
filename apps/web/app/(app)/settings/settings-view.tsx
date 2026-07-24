@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
@@ -19,16 +19,16 @@ export function SettingsView() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [confirmText, setConfirmText] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  // The user's in-progress edit, or null when untouched. Deriving the controlled value from
+  // this + the loaded profile (below) avoids syncing state from the query inside an effect.
+  const [displayNameEdit, setDisplayNameEdit] = useState<string | null>(null);
 
   const { data: me } = useQuery<Me>({
     queryKey: ["me"],
     queryFn: () => apiFetch("/me"),
   });
 
-  useEffect(() => {
-    if (me) setDisplayName(me.displayName ?? "");
-  }, [me]);
+  const displayName = displayNameEdit ?? me?.displayName ?? "";
 
   const saveProfile = useMutation({
     mutationFn: (name: string) =>
@@ -37,7 +37,11 @@ export function SettingsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ displayName: name }),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["me"] }),
+    // Clear the local edit so the input falls back to the freshly-saved server value.
+    onSuccess: () => {
+      setDisplayNameEdit(null);
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
   });
 
   const deleteAccount = useMutation({
@@ -64,7 +68,7 @@ export function SettingsView() {
           <Input
             id="display-name"
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            onChange={(e) => setDisplayNameEdit(e.target.value)}
             placeholder="Your name"
           />
           {saveProfile.isError && (
