@@ -82,13 +82,16 @@ export function DocumentsView() {
       query.state.data?.some((d) => d.status === "uploaded" || d.status === "processing") ? 5000 : false,
   });
 
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const remove = useMutation({
     mutationFn: (id: string) => apiFetch(`/documents/${id}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+    onError: (err) => setDeleteError(err instanceof Error ? err.message : "Failed to delete document."),
   });
 
   function handleDelete(id: string) {
     if (window.confirm("Delete this document permanently? This cannot be undone.")) {
+      setDeleteError(null);
       remove.mutate(id);
     }
   }
@@ -208,6 +211,9 @@ export function DocumentsView() {
             Failed to load documents. Please refresh or check that the API is running.
           </p>
         )}
+        {deleteError && (
+          <p className="rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">{deleteError}</p>
+        )}
         {documents?.length === 0 && (
           <p className="text-sm text-muted-foreground">
             {tag ? "No documents with this tag." : "No documents yet."}
@@ -228,7 +234,7 @@ export function DocumentsView() {
                 variant="ghost"
                 size="icon"
                 aria-label="Delete document"
-                disabled={remove.isPending}
+                disabled={remove.isPending && remove.variables === doc.id}
                 onClick={() => handleDelete(doc.id)}
               >
                 <Trash2 className="size-4" />

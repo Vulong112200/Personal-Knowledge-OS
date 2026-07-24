@@ -67,7 +67,9 @@ export function ChatPanel({
 
   const history = useQuery<ChatHistory>({ queryKey, queryFn: () => apiFetch(historyUrl) });
   const available = history.data?.available;
-  const disabled = available === false;
+  // Also disable while the initial history load is in flight: until `available` is known,
+  // a send would fire but produce no optimistic bubble (cache is still undefined).
+  const disabled = available === false || history.isLoading;
 
   const send = useMutation({
     mutationFn: (message: string) =>
@@ -94,7 +96,8 @@ export function ChatPanel({
 
     // Optimistically show the user's message immediately; the query cache is the single
     // source of truth, so a later refetch replaces this wholesale (no duplicates).
-    const tempId = `temp-${Date.now()}`;
+    // randomUUID (not Date.now) so two fast sends can't collide on the same React key.
+    const tempId = `temp-${crypto.randomUUID()}`;
     queryClient.setQueryData<ChatHistory>(queryKey, (old) =>
       old ? { ...old, messages: [...old.messages, { id: tempId, role: "user", content: message }] } : old,
     );

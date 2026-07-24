@@ -89,8 +89,9 @@ export function SearchView() {
           </p>
         )}
 
-        {search.data?.results.map((result) => (
-          <Link key={result.documentId} href={`/documents/${result.documentId}`}>
+        {!search.isPending &&
+          search.data?.results.map((result) => (
+            <Link key={result.documentId} href={`/documents/${result.documentId}`}>
             <Card className="transition-all hover:-translate-y-0.5 hover:shadow-glow">
               <CardContent className="flex flex-col gap-1">
                 <span className="text-sm font-medium text-foreground">{result.title}</span>

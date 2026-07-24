@@ -22,9 +22,16 @@ export class TransformersEmbeddingAdapter implements EmbeddingPort {
   private getPipeline() {
     if (!this.pipelinePromise) {
       this.logger.log(`Loading embedding model "${this.model}" (first use downloads weights)...`);
-      this.pipelinePromise = import('@huggingface/transformers').then(({ pipeline }) =>
+      const loading = import('@huggingface/transformers').then(({ pipeline }) =>
         pipeline('feature-extraction', this.model),
       ) as Promise<(input: string[], opts: unknown) => Promise<{ tolist(): number[][] }>>;
+      // If the (first) model load rejects — a network blip, HF outage, disk error — don't
+      // cache the rejected promise forever (that would 503 every chat/search until restart).
+      // Clear it so the next call retries the load from scratch.
+      loading.catch(() => {
+        if (this.pipelinePromise === loading) this.pipelinePromise = null;
+      });
+      this.pipelinePromise = loading;
     }
     return this.pipelinePromise;
   }

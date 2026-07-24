@@ -136,8 +136,12 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
   private async runEmbed(documentId: string) {
     if (!this.embedding.isAvailable) return;
 
-    const embedJob = await this.startJob(documentId, 'embed');
+    // Fully self-contained: the document is already 'processed' by the time we get here, so
+    // nothing in this stage — not even the startJob write — may throw up into markFailed and
+    // regress the status. Any failure is logged and swallowed.
+    let embedJob: { id: string } | undefined;
     try {
+      embedJob = await this.startJob(documentId, 'embed');
       // Chunks were just delete+recreated in runChunk, so their old embeddings are already
       // gone (FK cascade) — insert fresh ones. Store via raw SQL: pgvector's `vector` type
       // isn't representable in the Prisma schema (modeled as Unsupported).
@@ -169,7 +173,12 @@ export class DocumentProcessor implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       // Embedding failure doesn't fail the document — it stays processed + FTS-searchable,
       // just without semantic vectors (hybrid search falls back to lexical for it).
-      await this.failJobSoftly(embedJob.id, error, `Embedding failed for document ${documentId}`);
+      const message = error instanceof Error ? error.message : String(error);
+      if (embedJob) {
+        await this.failJobSoftly(embedJob.id, error, `Embedding failed for document ${documentId}`).catch(() => {});
+      } else {
+        this.logger.warn(`Embedding stage could not start for document ${documentId}: ${message}`);
+      }
     }
   }
 

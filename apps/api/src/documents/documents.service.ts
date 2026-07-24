@@ -103,13 +103,19 @@ export class DocumentsService {
     //    must be removed explicitly (its edges cascade off the node).
     //  - ai_chat_sessions.document_id is onDelete:SetNull; letting it null out would collide
     //    with the workspace-chat partial unique index, so delete the doc's sessions first.
-    await this.prisma.$transaction([
-      this.prisma.graphNode.deleteMany({
-        where: { workspaceId: document.workspaceId, nodeType: 'document', refId: id },
-      }),
-      this.prisma.aiChatSession.deleteMany({ where: { documentId: id } }),
-      this.prisma.document.delete({ where: { id } }),
-    ]);
+    try {
+      await this.prisma.$transaction([
+        this.prisma.graphNode.deleteMany({
+          where: { workspaceId: document.workspaceId, nodeType: 'document', refId: id },
+        }),
+        this.prisma.aiChatSession.deleteMany({ where: { documentId: id } }),
+        this.prisma.document.delete({ where: { id } }),
+      ]);
+    } catch (err: any) {
+      // Deleted concurrently between the ownership check and the transaction — treat a
+      // double-delete as success rather than surfacing a 500.
+      if (err?.code !== 'P2025') throw err;
+    }
 
     await this.storage.deleteObject(document.storageKey).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);

@@ -59,11 +59,23 @@ async function extractXlsx(buffer: Buffer): Promise<string> {
 
 function cellToText(value: unknown): string {
   if (value == null) return '';
+  // Date cells come back as native Date objects — keep them as searchable ISO strings
+  // instead of dropping them to ''.
+  if (value instanceof Date) return value.toISOString();
   if (typeof value === 'object') {
-    const obj = value as { text?: string; result?: unknown; hyperlink?: string };
+    const obj = value as {
+      text?: string;
+      result?: unknown;
+      hyperlink?: string;
+      error?: string;
+      richText?: Array<{ text?: string }>;
+    };
+    // Rich-text (mixed-format) cells are { richText: [{text}, ...] } — flatten the runs.
+    if (Array.isArray(obj.richText)) return obj.richText.map((r) => r.text ?? '').join('');
     if (typeof obj.text === 'string') return obj.text;
     if (obj.result != null) return String(obj.result);
     if (obj.hyperlink) return obj.hyperlink;
+    if (typeof obj.error === 'string') return obj.error;
     return '';
   }
   return String(value);

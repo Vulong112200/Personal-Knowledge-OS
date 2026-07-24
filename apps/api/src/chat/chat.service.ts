@@ -90,9 +90,18 @@ export class ChatService {
   }
 
   private persistTurn(sessionId: string, userContent: string, assistantContent: string) {
+    // Postgres now()/CURRENT_TIMESTAMP is transaction-stable, so both rows created in one
+    // $transaction would share an identical created_at and their intra-turn order (ordered
+    // by created_at alone) would be undefined. Stamp explicit timestamps 1ms apart so the
+    // user message always sorts before its assistant reply.
+    const now = Date.now();
     return this.prisma.$transaction([
-      this.prisma.aiChatMessage.create({ data: { sessionId, role: 'user', content: userContent } }),
-      this.prisma.aiChatMessage.create({ data: { sessionId, role: 'assistant', content: assistantContent } }),
+      this.prisma.aiChatMessage.create({
+        data: { sessionId, role: 'user', content: userContent, createdAt: new Date(now) },
+      }),
+      this.prisma.aiChatMessage.create({
+        data: { sessionId, role: 'assistant', content: assistantContent, createdAt: new Date(now + 1) },
+      }),
     ]);
   }
 
@@ -105,14 +114,17 @@ export class ChatService {
     let used = 0;
 
     for (const hit of hits) {
-      let index = indexByDocument.get(hit.documentId);
-      if (index === undefined) {
-        index = sources.length + 1;
+      const existing = indexByDocument.get(hit.documentId);
+      const index = existing ?? sources.length + 1;
+      const part = `[#${index}] ${hit.title}\n${hit.content}`;
+      // Check the budget BEFORE recording the source, so `sources` never cites a document
+      // whose text didn't actually make it into `context` (which would mislabel citations
+      // and, if the first hit overflows, contradict the "nothing matched" system prompt).
+      if (used + part.length > maxChars) break;
+      if (existing === undefined) {
         indexByDocument.set(hit.documentId, index);
         sources.push({ index, documentId: hit.documentId, title: hit.title });
       }
-      const part = `[#${index}] ${hit.title}\n${hit.content}`;
-      if (used + part.length > maxChars) break;
       parts.push(part);
       used += part.length;
     }

@@ -56,7 +56,20 @@ export class GraphService {
       where: { documentId },
       include: { tag: true },
     });
-    if (myTagLinks.length === 0) return;
+
+    if (myTagLinks.length === 0) {
+      // Reprocessed into zero tags — still drop any stale has_tag edges from a previous run,
+      // otherwise this document keeps showing as "related" via tags it no longer has.
+      const existingNode = await this.prisma.graphNode.findFirst({
+        where: { workspaceId, nodeType: 'document', refId: documentId },
+      });
+      if (existingNode) {
+        await this.prisma.graphEdge.deleteMany({
+          where: { workspaceId, edgeType: 'has_tag', sourceNodeId: existingNode.id },
+        });
+      }
+      return;
+    }
 
     const document = await this.prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     const documentNode = await this.ensureNode(workspaceId, 'document', documentId, document.title);

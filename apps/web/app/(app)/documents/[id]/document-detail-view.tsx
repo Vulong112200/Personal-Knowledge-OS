@@ -20,6 +20,7 @@ const ForceGraphCanvas = dynamic(() => import("../../graph/force-graph-canvas"),
 interface DocumentDto {
   id: string;
   title: string;
+  originalFilename: string;
   status: DocumentStatus;
   mimeType: string;
   sizeBytes: string;
@@ -73,9 +74,14 @@ export function DocumentDetailView({ documentId }: { documentId: string }) {
       const url = URL.createObjectURL(blob);
       const a = window.document.createElement("a");
       a.href = url;
-      a.download = document.data?.title ?? "document";
+      // Use the original filename (keeps the extension so the OS associates the file).
+      a.download = document.data?.originalFilename ?? document.data?.title ?? "document";
+      window.document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      // Defer revoke so the browser finishes capturing the download first (revoking on the
+      // same tick as click() silently cancels larger downloads in some browsers).
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Download failed.");
     }
